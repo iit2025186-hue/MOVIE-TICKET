@@ -58,10 +58,12 @@ cineverse/src/main/java/com/cineverse/
 From the workspace root:
 
 ```bash
-mvn -f cineverse/pom.xml spring-boot:run
+mvn spring-boot:run
 ```
 
 The server uses port `8080` by default. It uses an **H2 in-memory development database**, not MySQL. Hibernate creates the schema at startup. H2 data resets when the application restarts, then sample movies, cinemas, screens, and future showtimes are loaded again. The data loader checks each table before seeding, so it does not insert duplicate sample rows if run again against an already seeded database.
+
+On Replit, click **Run** to start the configured workflow and open the site in Preview. The workflow runs `mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=5000` so both the frontend and API are available through the same preview address. No external database or API secrets are required.
 
 ## Entity relationships
 
@@ -147,7 +149,7 @@ Show start time must be in the future, end time must be later than start time, t
 Run the complete suite from the workspace root:
 
 ```bash
-mvn -f cineverse/pom.xml test
+mvn test
 ```
 
 The suite contains **26 tests**: the previous 13 health/movie tests remain, and 13 Phase 3 tests cover cinema CRUD and screen details, show read/create/filter APIs, validation, missing relationships, sequential and concurrent overlap protection, adjacent-time behavior, cinema deletion, and idempotent sample seeding.
