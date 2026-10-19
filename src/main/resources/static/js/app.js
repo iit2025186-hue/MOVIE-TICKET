@@ -12,7 +12,10 @@
     searchTimer: null,
     searchSequence: 0,
     viewSequence: 0,
-    shownRecords: new Map()
+    shownRecords: new Map(),
+    selectedSeatLabels: new Set(),
+    currentBookingShow: null,
+    bookingIds: []
   };
 
   const icons = {
@@ -353,7 +356,7 @@
       </div>
     </section>
     <div class="page-wrap detail-body">
-      <section class="notice" aria-label="Booking availability information">${icons.shield}<span>Showtime availability is live. Seat selection and checkout are not connected, so choosing a screening will not create a booking.</span></section>
+      <section class="notice" aria-label="Booking information">${icons.shield}<span>Select a showtime to choose available seats. Confirmed bookings are saved in this browser; no payment is collected.</span></section>
     </div>`;
   }
 
@@ -398,9 +401,9 @@
           <div><h3>${escapeHtml(cinemaName)}</h3><p class="cinema-address">${escapeHtml(address || "Location details not listed")}</p></div>
           <span class="cinema-capacity">${screenNames.length ? escapeHtml(screenNames.join(" · ")) : "Screening room"}${capacity ? ` · ${escapeHtml(capacity)} seats` : ""}</span>
         </div>
-        <div class="show-times">${cinemaShows.map((show) => `<button class="show-time" type="button" data-show-id="${escapeHtml(show.id)}" aria-label="Select ${escapeHtml(formatTime(show.startTime))} show at ${escapeHtml(cinemaName)}">
+        <div class="show-times">${cinemaShows.map((show) => `<button class="show-time" type="button" data-show-id="${escapeHtml(show.id)}" aria-label="Choose seats for the ${escapeHtml(formatTime(show.startTime))} show at ${escapeHtml(cinemaName)}">
           <strong>${escapeHtml(formatTime(show.startTime))}</strong>
-          <span>${escapeHtml(formatShowDate(show.startTime))}${show.ticketPrice != null ? ` · ${escapeHtml(priceText(show.ticketPrice))}` : ""}</span>
+          <span>${escapeHtml(formatShowDate(show.startTime))}${show.ticketPrice != null ? ` · ${escapeHtml(priceText(show.ticketPrice))}` : ""} · Select seats</span>
         </button>`).join("")}</div>
       </article>`;
     }).join("");
@@ -429,7 +432,7 @@
         </div>
         <div>
           <div class="cinema-list" id="cinema-show-list">${message || groupedShowMarkup(shows, cinemas)}</div>
-          <div class="notice">${icons.shield}<span>Choosing a time is for comparison only. Seat selection, checkout and bookings are not connected yet.</span></div>
+          <div class="notice">${icons.shield}<span>Choose a showtime to view its live seat availability. Confirming a booking does not process a payment.</span></div>
         </div>
       </section>
     </div>`;

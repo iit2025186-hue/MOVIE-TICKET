@@ -20,7 +20,9 @@
       } catch (error) {
         // Some server errors do not include a JSON response body.
       }
-      throw new Error(message);
+      const error = new Error(message);
+      error.status = response.status;
+      throw error;
     }
     return response.json();
   }
@@ -43,6 +45,37 @@
     },
     getShowsByCinema(cinemaId) {
       return request(`/api/cinemas/${encodeURIComponent(cinemaId)}/shows`);
+    },
+    getShow(showId) {
+      return request(`/api/shows/${encodeURIComponent(showId)}`);
+    },
+    getSeatsForShow(showId) {
+      return request(`/api/shows/${encodeURIComponent(showId)}/seats`);
+    },
+    createBooking(showId, seatLabels) {
+      return fetch("/api/bookings", {
+        method: "POST",
+        headers: { Accept: "application/json", "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ showId: Number(showId), seatLabels })
+      }).then(async (response) => {
+        if (!response.ok) {
+          let message = "Your booking couldn't be confirmed. Please try again.";
+          try {
+            const body = await response.json();
+            if (body && typeof body.message === "string") message = body.message;
+          } catch (error) {
+            // Some server errors do not include a JSON response body.
+          }
+          const error = new Error(message);
+          error.status = response.status;
+          throw error;
+        }
+        return response.json();
+      });
+    },
+    getBooking(bookingId) {
+      return request(`/api/bookings/${encodeURIComponent(bookingId)}`);
     }
   };
 })();

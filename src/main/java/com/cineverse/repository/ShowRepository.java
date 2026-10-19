@@ -2,7 +2,13 @@ package com.cineverse.repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
+import jakarta.persistence.LockModeType;
+
+import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.cineverse.entity.Show;
@@ -25,4 +31,8 @@ public interface ShowRepository extends JpaRepository<Show, Long> {
             LocalDateTime requestedStart);
 
     boolean existsByMovie_Id(Long movieId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select show from Show show where show.id = :id")
+    Optional<Show> findByIdForUpdate(@Param("id") Long id);
 }

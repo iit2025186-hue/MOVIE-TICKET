@@ -12,6 +12,7 @@ import com.cineverse.entity.Cinema;
 import com.cineverse.entity.Screen;
 import com.cineverse.exception.CinemaNotFoundException;
 import com.cineverse.repository.CinemaRepository;
+import com.cineverse.repository.BookingRepository;
 import com.cineverse.repository.ScreenRepository;
 import com.cineverse.repository.ShowRepository;
 
@@ -19,14 +20,17 @@ import com.cineverse.repository.ShowRepository;
 public class CinemaService {
 
     private final CinemaRepository cinemaRepository;
+    private final BookingRepository bookingRepository;
     private final ScreenRepository screenRepository;
     private final ShowRepository showRepository;
 
     public CinemaService(
             CinemaRepository cinemaRepository,
+            BookingRepository bookingRepository,
             ScreenRepository screenRepository,
             ShowRepository showRepository) {
         this.cinemaRepository = cinemaRepository;
+        this.bookingRepository = bookingRepository;
         this.screenRepository = screenRepository;
         this.showRepository = showRepository;
     }
@@ -69,6 +73,7 @@ public class CinemaService {
     public void deleteCinema(Long id) {
         Cinema cinema = cinemaRepository.findById(id)
                 .orElseThrow(() -> new CinemaNotFoundException(id));
+        bookingRepository.deleteAllByShow_Screen_Cinema_Id(id);
         showRepository.deleteAllByScreen_Cinema_Id(id);
         screenRepository.deleteAllByCinema_Id(id);
         cinemaRepository.delete(cinema);

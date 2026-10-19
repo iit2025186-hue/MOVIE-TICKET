@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -43,8 +44,11 @@ public class Screen {
     @JoinColumn(name = "cinema_id", nullable = false)
     private Cinema cinema;
 
-    @OneToMany(mappedBy = "screen")
+    @OneToMany(mappedBy = "screen", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<Show> shows = new ArrayList<>();
+
+    @OneToMany(mappedBy = "screen", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<Seat> seats = new ArrayList<>();
 
     protected Screen() {
         // Required by JPA.
@@ -56,6 +60,12 @@ public class Screen {
         this.seatsPerRow = seatsPerRow;
         this.totalSeatCapacity = rowCount * seatsPerRow;
         this.cinema = cinema;
+        for (int row = 1; row <= rowCount; row++) {
+            String rowLabel = rowLabel(row);
+            for (int seatNumber = 1; seatNumber <= seatsPerRow; seatNumber++) {
+                seats.add(new Seat(this, row, rowLabel, seatNumber));
+            }
+        }
     }
 
     public Long getId() {
@@ -82,4 +92,14 @@ public class Screen {
         return cinema;
     }
 
+    private static String rowLabel(int rowNumber) {
+        StringBuilder label = new StringBuilder();
+        int value = rowNumber;
+        while (value > 0) {
+            value--;
+            label.insert(0, (char) ('A' + value % 26));
+            value /= 26;
+        }
+        return label.toString();
+    }
 }
