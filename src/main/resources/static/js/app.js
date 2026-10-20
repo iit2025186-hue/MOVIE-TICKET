@@ -194,7 +194,7 @@
             ? `<div class="movie-grid">${latestMovies.map(movieCard).join("")}</div>`
             : emptyPanel("The screen is waiting", "There are no movies in the catalog just yet. Check back soon.")}
         </section>
-        <section class="notice" aria-label="CineVerse service information">${icons.shield}<span>Movie listings, cinema locations and showtimes come from live CineVerse data. Seat selection and checkout are not connected yet.</span></section>
+        <section class="notice" aria-label="CineVerse service information">${icons.shield}<span>Explore movies, compare showtimes and reserve available seats. Bookings are demos only; no payment is processed.</span></section>
       </div>`;
     bindPosterFallbacks(app);
   }
@@ -491,34 +491,196 @@
     }
   }
 
-  function renderBookings() {
+  function savedBookingIds() {
+    try {
+      const stored = JSON.parse(localStorage.getItem("cineverse-booking-ids") || "[]");
+      if (Array.isArray(stored)) return [...new Set(stored.map(String).filter((id) => /^\d+$/.test(id)))];
+    } catch (error) {
+      // Continue with the in-memory list if browser storage is unavailable.
+    }
+    return state.bookingIds;
+  }
+
+  function saveBookingId(id) {
+    state.bookingIds = [...new Set([...savedBookingIds(), String(id)])];
+    try {
+      localStorage.setItem("cineverse-booking-ids", JSON.stringify(state.bookingIds));
+    } catch (error) {
+      // The booking is still confirmed by the server for this session.
+    }
+  }
+
+  function bookingCard(booking) {
+    return `<article class="booking-record">
+      <div class="booking-record-heading"><div><span class="eyebrow">Confirmed reservation</span><h2>${escapeHtml(booking.movieTitle)}</h2></div><span class="booking-status">${escapeHtml(booking.status)}</span></div>
+      <p class="booking-location">${escapeHtml(booking.cinemaName)} · ${escapeHtml(booking.screenName)} · ${escapeHtml(formatShowDate(booking.startTime))} at ${escapeHtml(formatTime(booking.startTime))}</p>
+      <div class="booking-seat-list">${booking.seatLabels.map((seat) => `<span>${escapeHtml(seat)}</span>`).join("")}</div>
+      <div class="booking-record-footer"><span>Reference <strong>${escapeHtml(booking.bookingReference)}</strong></span><span>Total <strong>${escapeHtml(Number(booking.totalPrice).toFixed(2))}</strong></span></div>
+      <p class="booking-demo-note">Demo reservation only — no payment was processed.</p>
+    </article>`;
+  }
+
+  async function renderBookings(viewId) {
+    const ids = savedBookingIds();
     app.innerHTML = `<section class="bookings-page page-wrap">
       <span class="eyebrow">Your CineVerse</span>
       <h1 class="page-title">My Bookings</h1>
-      <p style="max-width:510px;margin:14px 0 0;color:#aaa3a1;font-size:13px;line-height:1.75">A useful place for your plans, once booking is part of the experience.</p>
-      <div class="bookings-card">
+      <p class="bookings-intro">Reservations saved in this browser. No account or payment details are collected.</p>
+      <div class="notice bookings-storage-note">${icons.shield}<span>Development data is held in an in-memory database and is cleared when the server restarts.</span></div>
+      <div id="booking-history" class="booking-history" aria-live="polite">${ids.length ? statePanel("Loading your bookings", "Retrieving confirmed reservations.", "") : ""}</div>
+    </section>`;
+    if (!ids.length) {
+      document.getElementById("booking-history").innerHTML = `<div class="bookings-card">
         <span class="ticket-mark" aria-hidden="true">${icons.ticket}</span>
-        <span class="eyebrow">Not connected yet</span>
-        <h1>No bookings to show.</h1>
-        <p>CineVerse can currently help you discover films and compare real cinema showtimes. Customer accounts, seat selection, checkout and booking history are not available yet, so this page won't show made-up reservations.</p>
+        <span class="eyebrow">No reservations yet</span>
+        <h2>No bookings to show.</h2>
+        <p>Choose a movie, select a showtime and reserve available seats to see a confirmation here.</p>
         <a class="button button-primary" href="#/movies">Explore the movies ${icons.arrow}</a>
+      </div>`;
+      return;
+    }
+    const results = await Promise.all(ids.map(async (id) => {
+      try {
+        return { id, booking: await api.getBooking(id) };
+      } catch (error) {
+        return { id, error };
+      }
+    }));
+    if (viewId !== state.viewSequence) return;
+    const bookings = results.filter((result) => result.booking).map((result) => result.booking);
+    const expiredIds = results.filter((result) => result.error?.status === 404).map((result) => result.id);
+    const remainingIds = ids.filter((id) => !expiredIds.includes(id));
+    state.bookingIds = remainingIds;
+    try {
+      localStorage.setItem("cineverse-booking-ids", JSON.stringify(remainingIds));
+    } catch (error) {
+      // The current page can still show the successfully retrieved bookings.
+    }
+    const failedRequests = results.filter((result) => result.error && result.error.status !== 404);
+    const history = document.getElementById("booking-history");
+    if (failedRequests.length && !bookings.length) {
+      history.innerHTML = statePanel("Bookings unavailable", failedRequests[0].error.message, "bookings");
+      return;
+    }
+    history.innerHTML = `${expiredIds.length ? `<div class="notice">${icons.alert}<span>${expiredIds.length === ids.length ? "These reservation records were cleared when the in-memory development server restarted." : "Some reservation records are no longer available because the in-memory development server restarted."}</span></div>` : ""}
+      ${failedRequests.length ? `<div class="notice">${icons.alert}<span>Some bookings could not be loaded. Refresh this page to try again.</span></div>` : ""}
+      ${bookings.length ? bookings.map(bookingCard).join("") : `<div class="bookings-card"><h2>No active reservations found.</h2><a class="button button-primary" href="#/movies">Explore the movies ${icons.arrow}</a></div>`}`;
+  }
+
+  function seatSelectionMarkup(show, seats) {
+    const rows = new Map();
+    seats.forEach((seat) => {
+      if (!rows.has(seat.rowNumber)) rows.set(seat.rowNumber, []);
+      rows.get(seat.rowNumber).push(seat);
+    });
+    const canBook = show.status === "SCHEDULED" && new Date(show.startTime) > new Date();
+    const rowMarkup = [...rows.entries()].map(([, rowSeats]) => {
+      const rowLabel = rowSeats[0].label.replace(/\d+$/, "");
+      return `<div class="seat-row" role="group" aria-label="Row ${escapeHtml(rowLabel)}">${rowSeats.map((seat) =>
+        `<button class="seat-button ${seat.available ? "available" : "unavailable"}" type="button" data-seat-label="${escapeHtml(seat.label)}" aria-pressed="false" aria-label="Seat ${escapeHtml(seat.label)}${seat.available ? ", available" : ", booked"}" ${seat.available ? "" : "disabled"}>${escapeHtml(seat.label)}</button>`
+      ).join("")}</div>`;
+    }).join("");
+    return `<section class="seat-selection-page page-wrap" aria-labelledby="seat-page-title">
+      <a class="back-link" href="#/movies/${encodeURIComponent(show.movieId)}/shows">${icons.arrow} Back to showtimes</a>
+      <span class="eyebrow">Choose your seats</span>
+      <h1 class="page-title" id="seat-page-title">${escapeHtml(show.movieTitle)}</h1>
+      <p class="seat-show-meta">${escapeHtml(show.cinemaName)} · ${escapeHtml(show.screenName)} · ${escapeHtml(formatShowDate(show.startTime))} at ${escapeHtml(formatTime(show.startTime))}</p>
+      <p class="seat-price-note">Listed price per seat: ${escapeHtml(Number(show.ticketPrice).toFixed(2))}. No payment will be collected.</p>
+      <div class="seat-selection-layout">
+        <section class="seat-map-panel" aria-label="Seat selection">
+          <div class="cinema-screen" aria-hidden="true">SCREEN</div>
+          <div class="seat-map" aria-label="Available seats">${rowMarkup}</div>
+          <div class="seat-legend"><span><i class="legend-seat available"></i>Available</span><span><i class="legend-seat selected"></i>Selected</span><span><i class="legend-seat unavailable"></i>Booked</span></div>
+        </section>
+        <aside class="seat-checkout-panel" aria-label="Booking summary">
+          <span class="eyebrow">Your selection</span>
+          <p class="selected-seat-summary" id="selected-seat-summary">No seats selected</p>
+          <p class="selected-total">Total <strong id="booking-total">0.00</strong></p>
+          <p class="booking-demo-note">Confirming reserves these seats in the demo database. This is not a payment.</p>
+          <p id="booking-feedback" class="booking-feedback" role="alert" hidden></p>
+          <button class="button button-primary booking-submit" type="button" data-confirm-booking disabled>Select at least one seat</button>
+          ${canBook ? "" : `<p class="booking-feedback">This show is no longer accepting reservations.</p>`}
+        </aside>
       </div>
     </section>`;
   }
 
-  function showToast(show) {
-    document.querySelector(".toast")?.remove();
-    const toast = document.createElement("aside");
-    toast.className = "toast";
-    toast.setAttribute("role", "status");
-    toast.setAttribute("aria-live", "polite");
-    toast.innerHTML = `<strong>Showtime selected for comparison</strong>
-      <p>${escapeHtml(show.movieTitle || "This film")} at ${escapeHtml(show.cinemaName || "the selected cinema")} · ${escapeHtml(formatTime(show.startTime))}. Seat selection and checkout are not connected, so no booking has been created.</p>
-      <div class="toast-actions"><a href="#/bookings" style="color:#ef777b;font-size:10px;font-weight:700">Booking info</a><button class="toast-close" type="button">Dismiss</button></div>`;
-    document.body.appendChild(toast);
-    const dismiss = toast.querySelector(".toast-close");
-    dismiss.addEventListener("click", () => toast.remove());
-    window.setTimeout(() => toast.remove(), 9000);
+  async function renderSeatSelection(showId, viewId) {
+    state.selectedSeatLabels = new Set();
+    state.currentBookingShow = null;
+    app.innerHTML = `<div class="page-wrap detail-body">${statePanel("Loading seat map", "Checking this show's seat availability.", "")}</div>`;
+    try {
+      const [show, seats] = await Promise.all([api.getShow(showId), api.getSeatsForShow(showId)]);
+      if (viewId !== state.viewSequence) return;
+      state.currentBookingShow = show;
+      app.innerHTML = seatSelectionMarkup(show, seats);
+      if (show.status !== "SCHEDULED" || new Date(show.startTime) <= new Date()) {
+        const button = app.querySelector("[data-confirm-booking]");
+        if (button) button.disabled = true;
+      }
+    } catch (error) {
+      if (viewId !== state.viewSequence) return;
+      app.innerHTML = `<div class="page-wrap" style="padding-top:58px">${statePanel("Seat map unavailable", error.message, `seats:${showId}`)}</div>`;
+    }
+  }
+
+  function updateBookingSelection() {
+    const show = state.currentBookingShow;
+    if (!show) return;
+    const count = state.selectedSeatLabels.size;
+    const total = (Number(show.ticketPrice) * count).toFixed(2);
+    const summary = document.getElementById("selected-seat-summary");
+    const totalElement = document.getElementById("booking-total");
+    const button = app.querySelector("[data-confirm-booking]");
+    if (summary) summary.textContent = count ? [...state.selectedSeatLabels].sort().join(", ") : "No seats selected";
+    if (totalElement) totalElement.textContent = total;
+    if (button && new Date(show.startTime) > new Date() && show.status === "SCHEDULED") {
+      button.disabled = count === 0;
+      button.textContent = count ? `Confirm booking · ${total}` : "Select at least one seat";
+    }
+  }
+
+  async function confirmBooking(button) {
+    const show = state.currentBookingShow;
+    const feedback = document.getElementById("booking-feedback");
+    const labels = [...state.selectedSeatLabels];
+    if (!show || !labels.length) return;
+    button.disabled = true;
+    button.textContent = "Confirming reservation…";
+    if (feedback) feedback.hidden = true;
+    try {
+      const booking = await api.createBooking(show.id, labels);
+      saveBookingId(booking.id);
+      location.hash = "#/bookings";
+    } catch (error) {
+      if (feedback) {
+        feedback.textContent = error.message;
+        feedback.hidden = false;
+      }
+      button.disabled = false;
+      button.textContent = `Try again · ${(Number(show.ticketPrice) * labels.length).toFixed(2)}`;
+      if (error.status === 409) {
+        try {
+          const seats = await api.getSeatsForShow(show.id);
+          seats.forEach((seat) => {
+            const seatButton = app.querySelector(`[data-seat-label="${CSS.escape(seat.label)}"]`);
+            if (!seatButton) return;
+            seatButton.disabled = !seat.available;
+            seatButton.classList.toggle("unavailable", !seat.available);
+            seatButton.classList.toggle("available", seat.available);
+            seatButton.setAttribute("aria-label", `Seat ${seat.label}${seat.available ? ", available" : ", booked"}`);
+            if (!seat.available) {
+              seatButton.classList.remove("selected");
+              seatButton.setAttribute("aria-pressed", "false");
+              state.selectedSeatLabels.delete(seat.label);
+            }
+          });
+          updateBookingSelection();
+        } catch (refreshError) {
+          // Keep the conflict message visible if refreshed availability is unreachable.
+        }
+      }
+    }
   }
 
   function parseRoute() {
@@ -528,6 +690,7 @@
     if (!parts.length) return { name: "home" };
     if (parts[0] === "movies" && parts.length === 1) return { name: "movies" };
     if (parts[0] === "bookings" && parts.length === 1) return { name: "bookings" };
+    if (parts[0] === "shows" && parts[1] && parts[2] === "seats") return { name: "seats", id: parts[1] };
     if (parts[0] === "movies" && parts[1] && parts[2] === "shows") return { name: "shows", id: parts[1] };
     if (parts[0] === "movies" && parts[1]) return { name: "detail", id: parts[1] };
     return { name: "home" };
@@ -536,12 +699,13 @@
   function routeTo(route) {
     state.viewSequence += 1;
     const viewId = state.viewSequence;
-    setActiveNavigation(route.name === "detail" || route.name === "shows" ? "movies" : route.name);
+    setActiveNavigation(route.name === "detail" || route.name === "shows" || route.name === "seats" ? "movies" : route.name);
     if (route.name === "home") renderHome(viewId);
     else if (route.name === "movies") renderCatalog(viewId);
     else if (route.name === "detail") renderDetail(route.id, viewId);
     else if (route.name === "shows") renderShows(route.id, viewId);
-    else if (route.name === "bookings") renderBookings();
+    else if (route.name === "seats") renderSeatSelection(route.id, viewId);
+    else if (route.name === "bookings") renderBookings(viewId);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -550,6 +714,8 @@
     else if (action === "catalog") routeTo({ name: "movies" });
     else if (action.startsWith("detail:")) routeTo({ name: "detail", id: action.split(":")[1] });
     else if (action.startsWith("shows:")) routeTo({ name: "shows", id: action.split(":")[1] });
+    else if (action.startsWith("seats:")) routeTo({ name: "seats", id: action.split(":")[1] });
+    else if (action === "bookings") routeTo({ name: "bookings" });
     else if (action.startsWith("cinema:")) {
       const [, movieId, cinemaId] = action.split(":");
       const select = document.getElementById("cinema-filter");
@@ -567,8 +733,33 @@
     }
     const showtime = event.target.closest("[data-show-id]");
     if (showtime) {
-      const show = state.shownRecords.get(String(showtime.dataset.showId));
-      if (show) showToast(show);
+      location.hash = `#/shows/${encodeURIComponent(showtime.dataset.showId)}/seats`;
+      return;
+    }
+    const seat = event.target.closest("[data-seat-label]");
+    if (seat && !seat.disabled) {
+      const label = seat.dataset.seatLabel;
+      if (state.selectedSeatLabels.has(label)) {
+        state.selectedSeatLabels.delete(label);
+        seat.classList.remove("selected");
+        seat.setAttribute("aria-pressed", "false");
+      } else if (state.selectedSeatLabels.size < 10) {
+        state.selectedSeatLabels.add(label);
+        seat.classList.add("selected");
+        seat.setAttribute("aria-pressed", "true");
+      } else {
+        const feedback = document.getElementById("booking-feedback");
+        if (feedback) {
+          feedback.textContent = "You can book up to 10 seats at a time.";
+          feedback.hidden = false;
+        }
+      }
+      updateBookingSelection();
+      return;
+    }
+    const confirmButton = event.target.closest("[data-confirm-booking]");
+    if (confirmButton && !confirmButton.disabled) {
+      confirmBooking(confirmButton);
     }
   });
 

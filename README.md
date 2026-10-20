@@ -8,13 +8,16 @@ CineVerse is a college Object-Oriented Modeling project. The existing movie cata
 cineverse/src/main/java/com/cineverse/
 ├── config/DevelopmentMovieDataLoader.java
 ├── controller/
+│   ├── BookingController.java
 │   ├── CinemaController.java
 │   ├── HealthController.java
 │   ├── MovieController.java
 │   └── ShowController.java
 ├── dto/
 │   ├── ApiError.java
+│   ├── BookingDto.java
 │   ├── CinemaDto.java
+│   ├── CreateBookingRequest.java
 │   ├── CinemaRequest.java
 │   ├── MovieDto.java
 │   ├── MovieRequest.java
@@ -23,7 +26,10 @@ cineverse/src/main/java/com/cineverse/
 │   └── ShowRequest.java
 ├── entity/
 │   ├── Cinema.java
+│   ├── Booking.java
+│   ├── BookingSeat.java
 │   ├── Movie.java
+│   ├── Seat.java
 │   ├── Screen.java
 │   ├── Show.java
 │   └── ShowStatus.java
@@ -68,12 +74,15 @@ On Replit, click **Run** to start the configured workflow and open the site in P
 ## Entity relationships
 
 - One **Cinema** has zero or more **Screens**; each Screen belongs to exactly one Cinema.
+- Each **Screen** has physical **Seats**, identified by row and seat number.
 - One **Screen** can host zero or more **Shows**; each Show is scheduled on exactly one Screen.
 - One **Movie** can have zero or more **Shows**; each Show screens exactly one Movie.
+- A confirmed **Booking** belongs to one Show. Its **BookingSeats** link the selected physical seats to that show.
+- A database uniqueness rule on `(show, seat)` and a lock on the Show prevent two requests from reserving the same seat for that screening.
 - A Show’s Cinema is derived through `Show → Screen → Cinema`. It is not stored as a second Cinema relation, avoiding inconsistent duplicate data.
 - Facilities are a collection of values stored with the Cinema. Screen capacity is derived from `rowCount × seatsPerRow`.
 
-Deleting a Cinema removes its dependent Screen and Show rows in the current development model. Deleting a Movie that is still referenced by a Show is rejected with `409 Conflict`.
+Deleting a Cinema removes its dependent Screen, Show, and Booking rows in the current development model. Deleting a Movie that is still referenced by a Show is rejected with `409 Conflict`.
 
 ## APIs
 
@@ -125,6 +134,27 @@ POST `/api/shows` uses:
 
 Choose a start time in the future when trying this example. Valid statuses are `SCHEDULED`, `CANCELLED`, and `COMPLETED`.
 
+### Bookings and seats
+
+| Method | Route | Result |
+|---|---|---|
+| GET | `/api/shows/{showId}/seats` | List seats in row order with current availability |
+| POST | `/api/bookings` | Confirm a booking for selected seats; `201 Created` |
+| GET | `/api/bookings/{bookingId}` | Retrieve one confirmed booking |
+
+Seat availability response entries include a label (for example, `A1`), row and seat numbers, and an `available` flag. Create a booking with:
+
+```json
+{
+  "showId": 1,
+  "seatLabels": ["A1", "A2"]
+}
+```
+
+Bookings support up to 10 seats per request. Seat labels must belong to the show's screen, duplicates are rejected, and a seat already reserved for that same show returns `409 Conflict`. The total is calculated from the show's listed ticket price. A booking is confirmed as a demo reservation; no payment is processed.
+
+The My Bookings page keeps booking IDs in the current browser. This project does not have customer accounts, and the existing H2 database is in-memory: booking records are cleared when the server restarts.
+
 ### Health and movie catalog
 
 The existing `GET /api/health` endpoint and all Phase 2 `/api/movies` routes remain available. Movie responses and requests are unchanged. A movie with associated shows cannot be deleted; the API returns `409 Conflict` rather than a database error.
@@ -152,7 +182,7 @@ Run the complete suite from the workspace root:
 mvn test
 ```
 
-The suite contains **26 tests**: the previous 13 health/movie tests remain, and 13 Phase 3 tests cover cinema CRUD and screen details, show read/create/filter APIs, validation, missing relationships, sequential and concurrent overlap protection, adjacent-time behavior, cinema deletion, and idempotent sample seeding.
+The suite contains **31 tests**: the existing 26 health, movie, cinema, and show tests remain, with 5 booking integration tests for confirmation and total calculation, seat availability and duplicate-seat conflicts, malformed and invalid requests, concurrent booking protection, and booking retrieval.
 
 ## OOP concepts demonstrated
 
