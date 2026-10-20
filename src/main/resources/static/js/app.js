@@ -15,8 +15,50 @@
     shownRecords: new Map(),
     selectedSeatLabels: new Set(),
     currentBookingShow: null,
-    bookingIds: []
+    bookingIds: [],
+    discoveryStatus: null,
+    discoveryCategory: "all",
+    discoveryQuery: "",
+    discoveryChip: "all",
+    discoveryPage: 1,
+    discoveryTotalPages: 1,
+    discoveryResults: [],
+    discoveryLoading: false
   };
+
+  const discoveryCategories = [
+    { slug: "trending", label: "Trending Now" },
+    { slug: "popular", label: "Popular" },
+    { slug: "bollywood", label: "Bollywood" },
+    { slug: "hollywood", label: "Hollywood" },
+    { slug: "south-indian", label: "South Indian" },
+    { slug: "korean", label: "Korean" },
+    { slug: "japanese", label: "Japanese" },
+    { slug: "upcoming", label: "Upcoming" },
+    { slug: "top-rated", label: "Top Rated" },
+    { slug: "family-animation", label: "Family & Animation" },
+    { slug: "action-adventure", label: "Action & Adventure" },
+    { slug: "horror-thriller", label: "Horror & Thriller" },
+    { slug: "romance-drama", label: "Romance & Drama" },
+    { slug: "sci-fi-fantasy", label: "Sci-Fi & Fantasy" }
+  ];
+  const discoveryChips = [
+    { slug: "all", label: "All Movies" },
+    { slug: "trending", label: "Trending" },
+    { slug: "bollywood", label: "Bollywood" },
+    { slug: "hollywood", label: "Hollywood" },
+    { slug: "south-indian", label: "South Indian" },
+    { slug: "korean", label: "Korean" },
+    { slug: "japanese", label: "Japanese" },
+    { slug: "action", label: "Action" },
+    { slug: "comedy", label: "Comedy" },
+    { slug: "romance", label: "Romance" },
+    { slug: "horror", label: "Horror" },
+    { slug: "thriller", label: "Thriller" },
+    { slug: "animation", label: "Animation" },
+    { slug: "sci-fi", label: "Sci-Fi" },
+    { slug: "upcoming", label: "Upcoming" }
+  ];
 
   const icons = {
     arrow: '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M3.5 10h12m-5-5 5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -36,7 +78,8 @@
 
   function posterUrl(value) {
     const url = String(value || "").trim();
-    if (/^(https?:\/\/|\/)/i.test(url)) return url;
+    if (/^https?:\/\//i.test(url)) return url;
+    if (/^\/(?!\/)/.test(url)) return url;
     return "";
   }
 
@@ -131,6 +174,98 @@
       <h3><a href="#/movies/${encodeURIComponent(movie.id)}">${title}</a></h3>
       <div class="card-subtitle">${genre}${year ? ` <span aria-hidden="true">·</span> ${escapeHtml(year)}` : ""}</div>
     </article>`;
+  }
+
+  function discoveryGenres(movie) {
+    if (Array.isArray(movie.genres)) return movie.genres.filter(Boolean).join(" · ");
+    return movie.genre || "";
+  }
+
+  function discoveryRoute(movie) {
+    return movie.source === "LOCAL" && movie.localMovieId != null
+      ? `#/movies/${encodeURIComponent(movie.localMovieId)}`
+      : `#/discover/${encodeURIComponent(movie.id)}`;
+  }
+
+  function discoveryCard(movie, index = 0) {
+    const image = posterUrl(movie.posterUrl);
+    const title = escapeHtml(movie.title || "Untitled film");
+    const genres = escapeHtml(discoveryGenres(movie) || "Film");
+    const year = movieYear(movie);
+    const href = discoveryRoute(movie);
+    const hasRating = movie.rating != null && Number.isFinite(Number(movie.rating));
+    const bookable = movie.bookable === true && movie.localMovieId != null;
+    return `<article class="movie-card discovery-card" style="animation-delay:${Math.min(index, 8) * 35}ms">
+      <div class="poster-shell">
+        <a href="${href}" aria-label="View details for ${title}">
+          ${image ? `<img class="poster-image" src="${escapeHtml(image)}" alt="${title} poster" loading="lazy">` : ""}
+          <span class="poster-fallback" ${image ? "hidden" : ""} aria-hidden="true">${title}</span>
+        </a>
+        ${hasRating ? `<span class="card-rating">${icons.star}${escapeHtml(ratingText(movie.rating))}</span>` : ""}
+        ${bookable ? `<a class="card-overlay button button-primary" href="#/movies/${encodeURIComponent(movie.localMovieId)}/shows">Find showtimes ${icons.arrow}</a>` : ""}
+      </div>
+      <h3><a href="${href}">${title}</a></h3>
+      <div class="card-subtitle">${genres}${year ? ` <span aria-hidden="true">·</span> ${escapeHtml(year)}` : ""}</div>
+    </article>`;
+  }
+
+  function discoveryStatusMarkup(status) {
+    if (status?.liveAvailable) {
+      return `<div class="discovery-status is-live" role="status"><span class="status-marker" aria-hidden="true"></span>
+        <div><strong>Online discovery is connected</strong><p>${escapeHtml(status.message || "Explore live movie information. Showtimes appear only for films linked to CineVerse cinemas.")}</p></div>
+        <span class="status-region">${escapeHtml(status.region || "Live catalog")}</span>
+      </div>`;
+    }
+    const message = status?.message || "The online movie catalog is not configured. This page shows CineVerse's local catalog and scheduled cinema screenings.";
+    return `<div class="discovery-status" role="status"><span class="status-marker" aria-hidden="true"></span>
+      <div><strong>Local cinema catalog</strong><p>${escapeHtml(message)} Online discovery rankings and national categories are unavailable; local films and their real listed showtimes remain available.</p></div>
+      <a class="status-action" href="#/movies">Browse local films ${icons.arrow}</a>
+    </div>`;
+  }
+
+  function railSkeleton(slug) {
+    return `<div class="discovery-rail-loading" data-rail-content="${escapeHtml(slug)}" aria-label="Loading ${escapeHtml(slug)}">
+      ${Array.from({ length: 5 }, () => `<div class="rail-skeleton"><div></div><span></span><i></i></div>`).join("")}
+    </div>`;
+  }
+
+  function discoveryRailMarkup(category) {
+    return `<section class="discovery-rail-section" aria-labelledby="rail-${escapeHtml(category.slug)}">
+      <div class="section-heading rail-heading">
+        <div><span class="eyebrow">Discover</span><h2 id="rail-${escapeHtml(category.slug)}">${escapeHtml(category.label)}</h2></div>
+        <div class="rail-tools">
+          <a class="text-link" href="#/movies?category=${encodeURIComponent(category.slug)}">View all ${icons.arrow}</a>
+          <button class="rail-arrow" type="button" data-scroll-rail="${escapeHtml(category.slug)}" data-direction="-1" aria-label="Scroll ${escapeHtml(category.label)} left">‹</button>
+          <button class="rail-arrow" type="button" data-scroll-rail="${escapeHtml(category.slug)}" data-direction="1" aria-label="Scroll ${escapeHtml(category.label)} right">›</button>
+        </div>
+      </div>
+      ${railSkeleton(category.slug)}
+    </section>`;
+  }
+
+  function renderDiscoveryRail(slug, response, error = "") {
+    const target = app.querySelector(`[data-rail-content="${CSS.escape(slug)}"]`);
+    if (!target) return;
+    if (error) {
+      target.outerHTML = `<div class="rail-state" data-rail-content="${escapeHtml(slug)}">${statePanel("This collection couldn't load", error, `discovery-rail:${slug}`, true)}</div>`;
+      return;
+    }
+    const movies = Array.isArray(response?.results) ? response.results : [];
+    target.outerHTML = movies.length
+      ? `<div class="discovery-rail" data-rail-content="${escapeHtml(slug)}" tabindex="0" aria-label="${escapeHtml(slug)} movies">${movies.map(discoveryCard).join("")}</div>`
+      : `<div class="rail-state" data-rail-content="${escapeHtml(slug)}">${emptyPanel("No titles in this collection", "There are no matching titles in this catalog collection.")}</div>`;
+    bindPosterFallbacks(app);
+  }
+
+  async function loadDiscoveryRail(category, viewId) {
+    try {
+      const response = await api.getDiscoveryMovies(category.slug, 1, "");
+      if (viewId !== state.viewSequence) return;
+      renderDiscoveryRail(category.slug, response);
+    } catch (error) {
+      if (viewId !== state.viewSequence) return;
+      renderDiscoveryRail(category.slug, null, error.message);
+    }
   }
 
   function bindPosterFallbacks(root = app) {

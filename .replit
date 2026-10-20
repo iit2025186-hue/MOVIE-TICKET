@@ -30,3 +30,9 @@ outputType = "webview"
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[deployment]
+deploymentTarget = "cloudrun"
+
+[deployment.run]
+args = ["sh", "-c", "/nix/store/c8hr2f0b0dm685yx1dkp6bw24bpx495n-graalvm19-ce-22.3.1/bin/java -classpath .:target/dependency/* Main"]

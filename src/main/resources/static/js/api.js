@@ -34,6 +34,20 @@
     searchMovies(title) {
       return request(`/api/movies/search?title=${encodeURIComponent(title)}`);
     },
+    getDiscoveryStatus() {
+      return request("/api/discovery/status");
+    },
+    getDiscoveryMovies(category, page = 1, query = "") {
+      const params = new URLSearchParams({
+        category: String(category || "all"),
+        page: String(Math.max(1, Number(page) || 1))
+      });
+      if (String(query || "").trim()) params.set("query", String(query).trim());
+      return request(`/api/discovery/movies?${params.toString()}`);
+    },
+    getDiscoveryMovie(id) {
+      return request(`/api/discovery/movies/${encodeURIComponent(id)}`);
+    },
     getMovie(id) {
       return request(`/api/movies/${encodeURIComponent(id)}`);
     },
