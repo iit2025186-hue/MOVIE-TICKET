@@ -18,6 +18,10 @@
     catalogSearchSequence: 0,
     catalogSearchTimer: null,
     viewSequence: 0,
+    spotlightMovies: [],
+    spotlightIndex: 0,
+    spotlightLabel: "FEATURED",
+    spotlightTimer: null,
     shownRecords: new Map(),
     selectedSeatLabels: new Set(),
     currentBookingShow: null,
@@ -546,16 +550,22 @@
   }
 
   async function loadHomeFeaturedSections(movies, viewId) {
-    const [indianResult, internationalResult] = await Promise.all([
+    const [indianResult, internationalResult, trendingResult] = await Promise.all([
       Promise.all([
           api.getDiscoveryMovies("bollywood", 1, ""),
           api.getDiscoveryMovies("south-indian", 1, "")
       ]).then((responses) => ({ responses })).catch((error) => ({ error })),
       api.getDiscoveryMovies("all", 1, "")
         .then((response) => ({ response }))
+        .catch((error) => ({ error })),
+      api.getDiscoveryMovies("trending", 1, "")
+        .then((response) => ({ response }))
         .catch((error) => ({ error }))
     ]);
     if (viewId !== state.viewSequence) return;
+    const trendingMovies = trendingResult.response?.results || [];
+    setSpotlightMovies(trendingMovies.length ? trendingMovies : movies, viewId,
+      trendingMovies.length ? "TRENDING" : "FEATURED");
     const indian = [...new Map((indianResult.responses || []).flatMap((response) => response.results || [])
         .map((movie) => [String(movie.id), movie])).values()];
       const indianLanguageCodes = new Set(["hi", "bn", "gu", "kn", "ml", "mr", "pa", "ta", "te", "ur"]);
@@ -566,7 +576,7 @@
         online: international.length > 0,
         mixed: international.length === 0
       });
-    const errors = [indianResult.error, internationalResult.error].filter(Boolean);
+    const errors = [indianResult.error, internationalResult.error, trendingResult.error].filter(Boolean);
     const message = document.getElementById("home-featured-error");
     if (errors.length && message) {
       message.textContent = `Some live collections could not load (${errors.map((error) => error.message).join("; ")}). Showing available local and curated movies for those sections.`;
@@ -850,7 +860,7 @@
     });
   }
 
-  function heroMarkup(movie) {
+  function heroMarkup(movie, index = 0, count = 1, label = "FEATURED") {
     if (!movie) {
       return `<section class="hero"><div class="hero-content"><div class="hero-copy">
         <span class="eyebrow hero-kicker">A better way to go to the movies</span>
@@ -861,9 +871,12 @@
     }
     const image = posterUrl(movie.posterUrl);
     const description = movie.description || "A story worth seeing on the big screen.";
-    const genre = movie.genre || "";
+    const genre = movie.genre || (Array.isArray(movie.genres) ? movie.genres.filter(Boolean).join(" · ") : "");
     const duration = durationText(movie.durationMinutes);
     const year = movieYear(movie);
+    const detailHref = movie.source === "TMDB"
+      ? `#/discover/${encodeURIComponent(movie.id)}`
+      : `#/movies/${encodeURIComponent(movie.localMovieId || movie.id)}`;
     return `<section class="hero" aria-labelledby="featured-title">
       ${image ? `<img class="hero-image" src="${escapeHtml(image)}" alt="" fetchpriority="high">` : ""}
       <div class="hero-content"><div class="hero-copy">
@@ -878,14 +891,78 @@
         <p class="hero-description">${escapeHtml(description)}</p>
         <div class="hero-actions">
           <a class="button button-primary" href="#/movies">Explore Movies ${icons.arrow}</a>
-          <a class="button button-secondary" href="#/movies/${encodeURIComponent(movie.id)}">Film details ${icons.arrow}</a>
+          <a class="button button-secondary" href="${detailHref}">Film details ${icons.arrow}</a>
         </div>
       </div></div>
-      <div class="hero-index" aria-hidden="true"><strong>01</strong><span>/</span> FEATURED</div>
+      <div class="hero-carousel-controls">
+        ${count > 1 ? `<button class="hero-control-button" type="button" data-spotlight-step="-1" aria-label="Previous spotlight movie">‹</button>` : ""}
+        <div class="hero-index"><strong>${String(index + 1).padStart(2, "0")}</strong><span>/</span> ${label}</div>
+        ${count > 1 ? `<button class="hero-control-button" type="button" data-spotlight-step="1" aria-label="Next spotlight movie">›</button>` : ""}
+      </div>
     </section>`;
   }
 
+  function stopSpotlightTimer() {
+    if (state.spotlightTimer !== null) {
+      window.clearInterval(state.spotlightTimer);
+      state.spotlightTimer = null;
+    }
+  }
+
+  function startSpotlightTimer() {
+    stopSpotlightTimer();
+    const hero = app.querySelector(".hero");
+    if (state.spotlightMovies.length < 2
+        || window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        || document.hidden
+        || hero?.matches(":hover")
+        || hero?.contains(document.activeElement)) return;
+    state.spotlightTimer = window.setInterval(() => {
+      renderSpotlightSlide(state.spotlightIndex + 1, true);
+    }, 6500);
+  }
+
+  function renderSpotlightSlide(index, animate) {
+    const currentHero = app.querySelector(".hero");
+    if (!currentHero || !state.spotlightMovies.length) return;
+    state.spotlightIndex = (index + state.spotlightMovies.length) % state.spotlightMovies.length;
+    const container = document.createElement("div");
+    container.innerHTML = heroMarkup(
+      state.spotlightMovies[state.spotlightIndex],
+      state.spotlightIndex,
+      state.spotlightMovies.length,
+      state.spotlightLabel
+    );
+    const nextHero = container.firstElementChild;
+    if (!nextHero) return;
+    if (animate) nextHero.classList.add("is-changing");
+    currentHero.replaceWith(nextHero);
+    bindPosterFallbacks(nextHero);
+    nextHero.addEventListener("mouseenter", stopSpotlightTimer);
+    nextHero.addEventListener("mouseleave", startSpotlightTimer);
+    nextHero.addEventListener("focusin", stopSpotlightTimer);
+    nextHero.addEventListener("focusout", (event) => {
+      if (!nextHero.contains(event.relatedTarget)) startSpotlightTimer();
+    });
+  }
+
+  function setSpotlightMovies(movies, viewId, label = "FEATURED") {
+    if (viewId !== state.viewSequence) return;
+    const seen = new Set();
+    state.spotlightMovies = movies.filter((movie) => {
+      const key = String(movie.id || movie.title || "");
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }).slice(0, 10);
+    state.spotlightIndex = 0;
+    state.spotlightLabel = label;
+    renderSpotlightSlide(0, false);
+    startSpotlightTimer();
+  }
+
   function renderHomeShell(movie, movies, loading = false, discoveryStatus = null) {
+    stopSpotlightTimer();
     const discoveryContent = discoveryStatus
       ? discoveryStatus.liveAvailable
         ? `${discoveryStatusMarkup(discoveryStatus)}<p id="home-featured-error" class="online-fallback" role="status" hidden></p>
@@ -908,6 +985,10 @@
   }
 
   async function renderHome(viewId) {
+    stopSpotlightTimer();
+    state.spotlightMovies = [];
+    state.spotlightIndex = 0;
+    state.spotlightLabel = "FEATURED";
     renderHomeShell(null, [], true);
     try {
       const discoveryStatusRequest = api.getDiscoveryStatus().catch((error) => ({
@@ -920,6 +1001,7 @@
       state.movies = Array.isArray(movies) ? movies : [];
       state.discoveryStatus = discoveryStatus;
       renderHomeShell(state.movies[0] || null, state.movies, false, discoveryStatus);
+      setSpotlightMovies(state.movies, viewId);
       if (discoveryStatus.liveAvailable) {
         loadHomeFeaturedSections(state.movies, viewId);
         homeDiscoveryCategories.forEach((slug) => {
@@ -2236,6 +2318,7 @@
 
   function routeTo(route) {
     state.viewSequence += 1;
+    if (route.name !== "home") stopSpotlightTimer();
     const viewId = state.viewSequence;
     if (["bookingStart", "seats", "checkout", "ticket"].includes(route.name)) {
       if (!state.authReady) {
@@ -2299,6 +2382,12 @@
   }
 
   app.addEventListener("click", (event) => {
+    const spotlightStep = event.target.closest("[data-spotlight-step]");
+    if (spotlightStep) {
+      renderSpotlightSlide(state.spotlightIndex + Number(spotlightStep.dataset.spotlightStep), true);
+      startSpotlightTimer();
+      return;
+    }
     const findShowsButton = event.target.closest("[data-find-booking-shows]");
     if (findShowsButton) {
       findBookingShows(findShowsButton);
@@ -2518,6 +2607,10 @@
   }
 
   window.addEventListener("hashchange", () => routeTo(parseRoute()));
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) stopSpotlightTimer();
+    else startSpotlightTimer();
+  });
   applyTheme(state.theme);
   routeTo(parseRoute());
   loadCityOptions();

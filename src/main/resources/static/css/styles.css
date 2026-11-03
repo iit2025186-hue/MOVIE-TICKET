@@ -307,10 +307,15 @@ main { min-height: calc(100dvh - 76px); }
 .button-secondary { border-color: rgba(255,255,255,.2); background: rgba(255,255,255,.035); color: #f2eeec; }
 .button-secondary:hover { border-color: rgba(255,255,255,.44); background: rgba(255,255,255,.08); }
 .button svg { width: 15px; height: 15px; }
-.hero-index {
+.hero-carousel-controls {
   position: absolute;
   right: max(32px, calc((100vw - 1240px) / 2));
   bottom: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.hero-index {
   display: flex;
   align-items: center;
   gap: 11px;
@@ -322,6 +327,23 @@ main { min-height: calc(100dvh - 76px); }
 .hero-index::before { width: 54px; height: 1px; background: var(--red); content: ""; }
 .hero-index strong { color: #fff; }
 .hero-index span { color: #7f7978; }
+.hero-control-button {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,.28);
+  border-radius: 50%;
+  background: rgba(17,17,18,.45);
+  color: #fff;
+  font-size: 20px;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+.hero-control-button:hover { border-color: var(--red); background: rgba(237,59,66,.22); }
+.hero-control-button:focus-visible { outline: 2px solid var(--red); outline-offset: 3px; }
+.hero.is-changing .hero-copy { animation: spotlight-copy-in .55s both; }
+.hero.is-changing .hero-image { animation: spotlight-image-in .7s both; }
 
 .home-body { padding-top: 60px; padding-bottom: 90px; }
 .discovery-status {
@@ -995,6 +1017,8 @@ main { min-height: calc(100dvh - 76px); }
 
 @keyframes rise-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes shimmer { to { transform: translateX(100%); } }
+@keyframes spotlight-copy-in { from { opacity: 0; transform: translateX(34px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes spotlight-image-in { from { opacity: 0; transform: scale(1.07); } to { opacity: .83; transform: scale(1.02); } }
 
 @media (max-width: 1000px) {
   .movie-grid, .loading-grid { grid-template-columns: repeat(5, minmax(0, 180px)); }
@@ -1032,7 +1056,10 @@ main { min-height: calc(100dvh - 76px); }
   .hero-description { max-width: 440px; font-size: 12px; }
   .hero-meta { margin: 15px 0 12px; font-size: 11px; }
   .hero-actions { margin-top: 22px; }
-  .hero-index { right: 19px; bottom: 21px; font-size: 9px; }
+  .hero-carousel-controls { right: 19px; bottom: 17px; gap: 7px; }
+  .hero-index { gap: 7px; font-size: 9px; }
+  .hero-index::before { width: 24px; }
+  .hero-control-button { width: 30px; height: 30px; font-size: 18px; }
   .home-body { padding-top: 43px; padding-bottom: 55px; }
   .discovery-status { align-items: flex-start; flex-wrap: wrap; margin-top: 28px; padding: 13px; }
   .status-region, .status-action { margin-left: 20px; }
