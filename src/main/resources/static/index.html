@@ -7,9 +7,9 @@
   <meta name="description" content="Discover films, compare nearby cinemas and find your next showtime with CineVerse.">
   <title>CineVerse — find your next film</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="/css/styles.css">
-  <script src="/js/api.js" defer></script>
-  <script src="/js/app.js" defer></script>
+  <link rel="stylesheet" href="/css/styles.css?v=20">
+  <script src="/js/api.js?v=8" defer></script>
+  <script src="/js/app.js?v=21" defer></script>
 </head>
 <body>
   <header class="site-header">
@@ -24,8 +24,18 @@
         <a class="nav-link" data-route="home" href="#/">Home</a>
         <a class="nav-link" data-route="movies" href="#/movies">Movies</a>
         <a class="nav-link" data-route="bookings" href="#/bookings">My Bookings</a>
+        <span class="auth-nav" id="auth-nav" aria-live="polite"></span>
       </nav>
       <div class="nav-side">
+        <label class="city-picker" for="city-selector">
+          <span class="visually-hidden">Choose city</span>
+          <select id="city-selector" aria-label="Choose city">
+            <option value="">All cities</option>
+          </select>
+        </label>
+        <button class="theme-toggle" id="theme-toggle" type="button" aria-label="Switch to light theme" title="Switch to light theme">
+          <span aria-hidden="true">☼</span>
+        </button>
         <span class="nav-note"><span class="live-dot" aria-hidden="true"></span> Your local cinema guide</span>
         <span class="nav-divider" aria-hidden="true"></span>
         <a class="nav-search" href="#/movies" aria-label="Search movies">

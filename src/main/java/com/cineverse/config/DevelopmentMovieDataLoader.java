@@ -145,6 +145,8 @@ public class DevelopmentMovieDataLoader implements ApplicationRunner {
                 .orElseThrow(() -> new ScreenNotFoundException(-1L));
 
         LocalDate showDate = LocalDate.now().plusDays(7);
+        LocalDate secondShowDate = showDate.plusDays(1);
+        LocalDate thirdShowDate = showDate.plusDays(2);
         LocalDateTime firstStart = showDate.atTime(18, 0);
         LocalDateTime secondStart = showDate.atTime(21, 0);
         LocalDateTime nextDayStart = showDate.plusDays(1).atTime(19, 0);
@@ -165,10 +167,59 @@ public class DevelopmentMovieDataLoader implements ApplicationRunner {
                         new BigDecimal("400.00"),
                         ShowStatus.SCHEDULED),
                 new Show(
+                        inception,
+                        centralScreenTwo,
+                        firstStart,
+                        firstStart.plusMinutes(148),
+                        new BigDecimal("300.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
+                        inception,
+                        centralScreenOne,
+                        secondShowDate.atTime(18, 0),
+                        secondShowDate.atTime(18, 0).plusMinutes(148),
+                        new BigDecimal("350.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
+                        inception,
+                        centralScreenTwo,
+                        secondShowDate.atTime(21, 0),
+                        secondShowDate.atTime(21, 0).plusMinutes(148),
+                        new BigDecimal("300.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
+                        interstellar,
+                        centralScreenTwo,
+                        secondStart,
+                        secondStart.plusMinutes(169),
+                        new BigDecimal("350.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
+                        interstellar,
+                        centralScreenOne,
+                        secondShowDate.atTime(21, 0),
+                        secondShowDate.atTime(21, 0).plusMinutes(169),
+                        new BigDecimal("400.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
+                        interstellar,
+                        centralScreenTwo,
+                        secondShowDate.atTime(18, 0),
+                        secondShowDate.atTime(18, 0).plusMinutes(169),
+                        new BigDecimal("350.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
                         darkKnight,
                         lakesideScreenOne,
                         nextDayStart,
                         nextDayStart.plusMinutes(152),
+                        new BigDecimal("300.00"),
+                        ShowStatus.SCHEDULED),
+                new Show(
+                        darkKnight,
+                        lakesideScreenOne,
+                        thirdShowDate.atTime(19, 0),
+                        thirdShowDate.atTime(19, 0).plusMinutes(152),
                         new BigDecimal("300.00"),
                         ShowStatus.SCHEDULED)));
     }

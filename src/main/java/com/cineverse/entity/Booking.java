@@ -34,6 +34,10 @@ public class Booking {
     @JoinColumn(name = "show_id", nullable = false)
     private Show show;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_account_id")
+    private CustomerAccount customerAccount;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private BookingStatus status;
@@ -41,8 +45,26 @@ public class Booking {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal totalPrice;
 
+    @Column(length = 20)
+    private String paymentMethod;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
+
+    @Column(length = 500)
+    private String cancellationReason;
+
+    private LocalDateTime cancelledAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private BookingAftercareType aftercareType;
+
+    @Enumerated(EnumType.STRING)
+    @Column(length = 20)
+    private BookingAftercareStatus aftercareStatus;
+
+    private LocalDateTime aftercareRequestedAt;
 
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BookingSeat> bookedSeats = new ArrayList<>();
@@ -52,15 +74,42 @@ public class Booking {
     }
 
     public Booking(String bookingReference, Show show, BigDecimal totalPrice) {
+        this(bookingReference, show, totalPrice, null, "DEMO");
+    }
+
+    public Booking(String bookingReference, Show show, BigDecimal totalPrice, CustomerAccount customerAccount) {
+        this(bookingReference, show, totalPrice, customerAccount, "DEMO");
+    }
+
+    public Booking(
+            String bookingReference,
+            Show show,
+            BigDecimal totalPrice,
+            CustomerAccount customerAccount,
+            String paymentMethod) {
         this.bookingReference = bookingReference;
         this.show = show;
         this.totalPrice = totalPrice;
+        this.customerAccount = customerAccount;
+        this.paymentMethod = paymentMethod;
         this.status = BookingStatus.CONFIRMED;
         this.createdAt = LocalDateTime.now();
     }
 
     public void addSeat(Seat seat) {
         bookedSeats.add(new BookingSeat(this, show, seat));
+    }
+
+    public void cancel(String reason) {
+        this.status = BookingStatus.CANCELLED;
+        this.cancellationReason = reason;
+        this.cancelledAt = LocalDateTime.now();
+    }
+
+    public void requestAftercare(BookingAftercareType type) {
+        this.aftercareType = type;
+        this.aftercareStatus = BookingAftercareStatus.PENDING;
+        this.aftercareRequestedAt = LocalDateTime.now();
     }
 
     public Long getId() {
@@ -75,6 +124,10 @@ public class Booking {
         return show;
     }
 
+    public CustomerAccount getCustomerAccount() {
+        return customerAccount;
+    }
+
     public BookingStatus getStatus() {
         return status;
     }
@@ -83,8 +136,32 @@ public class Booking {
         return totalPrice;
     }
 
+    public String getPaymentMethod() {
+        return paymentMethod;
+    }
+
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public String getCancellationReason() {
+        return cancellationReason;
+    }
+
+    public LocalDateTime getCancelledAt() {
+        return cancelledAt;
+    }
+
+    public BookingAftercareType getAftercareType() {
+        return aftercareType;
+    }
+
+    public BookingAftercareStatus getAftercareStatus() {
+        return aftercareStatus;
+    }
+
+    public LocalDateTime getAftercareRequestedAt() {
+        return aftercareRequestedAt;
     }
 
     public List<BookingSeat> getBookedSeats() {

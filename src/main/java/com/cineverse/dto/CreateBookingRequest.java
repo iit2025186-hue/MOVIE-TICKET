@@ -22,7 +22,24 @@ public record CreateBookingRequest(
                 @NotBlank(message = "Seat labels cannot be blank")
                 @Pattern(regexp = "[A-Z]{1,3}[1-9][0-9]*",
                         message = "Seat labels must look like A1 or B12")
-                String> seatLabels) {
+                String> seatLabels,
+
+        @NotBlank(message = "Choose a demo payment method")
+        @Pattern(regexp = "(?i)upi|card|netbanking|wallet",
+                message = "Choose a supported demo payment method")
+        String paymentMethod,
+
+        @NotBlank(message = "Complete the simulated payment before booking")
+        @Pattern(regexp = "SUCCESS", message = "Only successful simulated payments can create a booking")
+        String paymentOutcome) {
+
+    public CreateBookingRequest(Long showId, List<String> seatLabels) {
+        this(showId, seatLabels, "upi", "SUCCESS");
+    }
+
+    public CreateBookingRequest(Long showId, List<String> seatLabels, String paymentMethod) {
+        this(showId, seatLabels, paymentMethod, "SUCCESS");
+    }
 
     @AssertTrue(message = "Choose each seat only once")
     public boolean isSeatSelectionUnique() {

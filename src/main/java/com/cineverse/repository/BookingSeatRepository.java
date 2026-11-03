@@ -10,6 +10,6 @@ import com.cineverse.entity.BookingSeat;
 
 public interface BookingSeatRepository extends JpaRepository<BookingSeat, Long> {
 
-    @Query("select bookingSeat.seat.id from BookingSeat bookingSeat where bookingSeat.show.id = :showId")
+    @Query("select bookingSeat.seat.id from BookingSeat bookingSeat where bookingSeat.show.id = :showId and bookingSeat.booking.status = com.cineverse.entity.BookingStatus.CONFIRMED")
     List<Long> findBookedSeatIdsByShowId(@Param("showId") Long showId);
 }

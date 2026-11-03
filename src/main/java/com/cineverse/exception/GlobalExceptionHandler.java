@@ -30,11 +30,25 @@ public class GlobalExceptionHandler {
         return error(HttpStatus.NOT_FOUND, exception.getMessage(), request, Map.of());
     }
 
+    @ExceptionHandler(AuthenticationRequiredException.class)
+    public ResponseEntity<ApiError> handleAuthenticationRequired(
+            AuthenticationRequiredException exception,
+            HttpServletRequest request) {
+        return error(HttpStatus.UNAUTHORIZED, exception.getMessage(), request, Map.of());
+    }
+
     @ExceptionHandler(RequestConflictException.class)
     public ResponseEntity<ApiError> handleRequestConflict(
             RequestConflictException exception,
             HttpServletRequest request) {
         return error(HttpStatus.CONFLICT, exception.getMessage(), request, Map.of());
+    }
+
+    @ExceptionHandler(DiscoveryUnavailableException.class)
+    public ResponseEntity<ApiError> handleDiscoveryUnavailable(
+            DiscoveryUnavailableException exception,
+            HttpServletRequest request) {
+        return error(exception.getStatus(), exception.getMessage(), request, Map.of());
     }
 
     @ExceptionHandler(InvalidRequestException.class)
@@ -72,10 +86,14 @@ public class GlobalExceptionHandler {
             ConstraintViolationException exception,
             HttpServletRequest request) {
         Map<String, String> fieldErrors = new LinkedHashMap<>();
-        exception.getConstraintViolations().forEach(violation ->
-                fieldErrors.put(violation.getPropertyPath().toString(), violation.getMessage()));
+            exception.getConstraintViolations().forEach(violation -> {
+                String propertyPath = violation.getPropertyPath().toString();
+                int lastSeparator = propertyPath.lastIndexOf('.');
+                String field = lastSeparator < 0 ? propertyPath : propertyPath.substring(lastSeparator + 1);
+                fieldErrors.put(field, violation.getMessage());
+            });
 
-        return error(HttpStatus.BAD_REQUEST, "Request validation failed", request, fieldErrors);
+            return error(HttpStatus.BAD_REQUEST, "Request validation failed", request, fieldErrors);
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

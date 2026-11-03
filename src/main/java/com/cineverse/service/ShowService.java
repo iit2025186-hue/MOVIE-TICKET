@@ -121,12 +121,14 @@ public class ShowService {
                 show.getMovie().getTitle(),
                 cinema.getId(),
                 cinema.getName(),
+                cinema.getCity(),
                 screen.getId(),
                 screen.getName(),
                 screen.getTotalSeatCapacity(),
                 show.getStartTime(),
                 show.getEndTime(),
                 show.getTicketPrice(),
-                show.getStatus());
+                show.getStatus(),
+                cinema.getName().equals("CineVerse Demo Cinema"));
     }
 }

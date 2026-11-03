@@ -11,11 +11,13 @@ public record ShowDto(
         String movieTitle,
         Long cinemaId,
         String cinemaName,
+        String city,
         Long screenId,
         String screenName,
         Integer totalSeatCapacity,
         LocalDateTime startTime,
         LocalDateTime endTime,
         BigDecimal ticketPrice,
-        ShowStatus status) {
+        ShowStatus status,
+        boolean demo) {
 }

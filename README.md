@@ -10,6 +10,7 @@ cineverse/src/main/java/com/cineverse/
 ├── controller/
 │   ├── BookingController.java
 │   ├── CinemaController.java
+│   ├── DiscoveryController.java
 │   ├── HealthController.java
 │   ├── MovieController.java
 │   └── ShowController.java
@@ -18,6 +19,9 @@ cineverse/src/main/java/com/cineverse/
 │   ├── BookingDto.java
 │   ├── CinemaDto.java
 │   ├── CreateBookingRequest.java
+│   ├── DiscoveryMovieDto.java
+│   ├── DiscoveryMoviesPageDto.java
+│   ├── DiscoveryStatusDto.java
 │   ├── CinemaRequest.java
 │   ├── MovieDto.java
 │   ├── MovieRequest.java
@@ -35,6 +39,7 @@ cineverse/src/main/java/com/cineverse/
 │   └── ShowStatus.java
 ├── exception/
 │   ├── CinemaNotFoundException.java
+│   ├── DiscoveryUnavailableException.java
 │   ├── GlobalExceptionHandler.java
 │   ├── MovieNotFoundException.java
 │   ├── RequestConflictException.java
@@ -49,6 +54,7 @@ cineverse/src/main/java/com/cineverse/
 └── service/
     ├── CinemaService.java
     ├── MovieService.java
+    ├── TmdbDiscoveryService.java
     └── ShowService.java
 ```
 
@@ -69,7 +75,18 @@ mvn spring-boot:run
 
 The server uses port `8080` by default. It uses an **H2 in-memory development database**, not MySQL. Hibernate creates the schema at startup. H2 data resets when the application restarts, then sample movies, cinemas, screens, and future showtimes are loaded again. The data loader checks each table before seeding, so it does not insert duplicate sample rows if run again against an already seeded database.
 
-On Replit, click **Run** to start the configured workflow and open the site in Preview. The workflow runs `mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=5000` so both the frontend and API are available through the same preview address. No external database or API secrets are required.
+### Optional live TMDB movie discovery
+
+Set the TMDB v3 API key in the environment before starting the app; never put the key in source code or commit it:
+
+```powershell
+$env:TMDB_API_KEY = "<your TMDB API key>"
+mvn spring-boot:run
+```
+
+Without the environment variable, CineVerse keeps the local movie catalog and reports live discovery as unavailable. With a key configured, the homepage loads trending, popular, Bollywood, Hollywood, South Indian, upcoming, and top-rated movie sliders. Movie details and paginated category pages come from the backend TMDB adapter; a discovered title only offers local showtimes when its title matches a movie in the CineVerse catalog.
+
+On Replit, click **Run** to start the configured workflow and open the site in Preview. The workflow runs `mvn spring-boot:run -Dspring-boot.run.arguments=--server.port=5000` so both the frontend and API are available through the same preview address. No external database is required; TMDB discovery remains optional until `TMDB_API_KEY` is configured.
 
 ## Entity relationships
 
@@ -85,6 +102,16 @@ On Replit, click **Run** to start the configured workflow and open the site in P
 Deleting a Cinema removes its dependent Screen, Show, and Booking rows in the current development model. Deleting a Movie that is still referenced by a Show is rejected with `409 Conflict`.
 
 ## APIs
+
+### Live movie discovery
+
+| Method | Route | Result |
+|---|---|---|
+| GET | `/api/discovery/status` | Report whether `TMDB_API_KEY` enables live discovery |
+| GET | `/api/discovery/movies?category=trending&page=1` | Fetch a TMDB category page |
+| GET | `/api/discovery/movies/{tmdbId}` | Fetch movie details from TMDB |
+
+Supported categories include trending, popular, Bollywood, Hollywood, South Indian, Korean, Japanese, upcoming, top-rated, family/animation, action/adventure, horror/thriller, romance/drama, and sci-fi/fantasy. TMDB requests run from the backend so the key is not sent to the browser. TMDB/network errors return an explicit `502` response; live endpoints return `503` when the key is not configured.
 
 ### Cinemas
 
@@ -141,6 +168,7 @@ Choose a start time in the future when trying this example. Valid statuses are `
 | GET | `/api/shows/{showId}/seats` | List seats in row order with current availability |
 | POST | `/api/bookings` | Confirm a booking for selected seats; `201 Created` |
 | GET | `/api/bookings/{bookingId}` | Retrieve one confirmed booking |
+| GET | `/api/auth/me/bookings` | Retrieve bookings owned by the signed-in customer |
 
 Seat availability response entries include a label (for example, `A1`), row and seat numbers, and an `available` flag. Create a booking with:
 
@@ -151,9 +179,27 @@ Seat availability response entries include a label (for example, `A1`), row and 
 }
 ```
 
+### Customer demo account
+
+Customer passwords are stored as BCrypt hashes. Register a new account using **Sign up**, or sign in with the seeded practical account:
+
+- Email: `demo@cineverse.local`
+- Password: `MovieNight2026!` (override with the `CINEVERSE_DEMO_PASSWORD` environment variable before startup)
+
+Bookings made while signed in are associated with that customer. The personal **My Bookings** report is filtered on the server by the session account; customers cannot retrieve another customer's booking by changing its ID. Sign-in and bookings use an in-memory H2 database and reset when the app restarts. Anonymous demo reservations made before signing in remain browser-local/legacy records and are not assigned to an account.
+
+### Admin dashboard
+
+The seeded demo administrator is separate from customer accounts and has the `ADMIN` role:
+
+- Email: `admin@cineverse.local`
+- Password: `AdminNight2026!` (override with `CINEVERSE_DEMO_ADMIN_PASSWORD` before startup)
+
+Admin passwords are BCrypt-hashed. Only an account with the server-side `ADMIN` role can access `GET /api/admin/dashboard`; being signed in as a customer returns `403`, and an unauthenticated request returns `401`. The dashboard summarizes movies, cinemas, shows and customer accounts, and lists bookings with show-date filters and demo revenue totals. Revenue includes confirmed demo bookings only. CSV export is generated from the authorized, filtered report. This is a classroom demo, not a production admin system.
+
 Bookings support up to 10 seats per request. Seat labels must belong to the show's screen, duplicates are rejected, and a seat already reserved for that same show returns `409 Conflict`. The total is calculated from the show's listed ticket price. A booking is confirmed as a demo reservation; no payment is processed.
 
-The My Bookings page keeps booking IDs in the current browser. This project does not have customer accounts, and the existing H2 database is in-memory: booking records are cleared when the server restarts.
+The My Bookings page keeps booking IDs and their unique references in the current browser and checks both when retrieving a ticket, so a reused database ID cannot display a different reservation. This project does not have customer accounts, and the existing H2 database is in-memory: booking records are cleared when the server restarts. A displayed ticket code is illustrative only, not a scannable QR code; no payment is processed.
 
 ### Health and movie catalog
 
