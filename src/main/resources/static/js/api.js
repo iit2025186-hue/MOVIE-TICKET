@@ -139,10 +139,14 @@
     getSeatsForShow(showId) {
       return request(`/api/shows/${encodeURIComponent(showId)}/seats`);
     },
-    createBooking(showId, seatLabels, paymentMethod) {
+    getFoodMenu() {
+      return request("/api/booking-food-menu");
+    },
+    createBooking(showId, seatLabels, paymentMethod, foodItems = []) {
       return authRequest("/api/bookings", "POST", {
         showId: Number(showId),
         seatLabels,
+        foodItems,
         paymentMethod,
         paymentOutcome: "SUCCESS"
       });

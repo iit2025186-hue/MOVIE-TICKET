@@ -21,6 +21,7 @@ import com.cineverse.dto.BookingAftercareRequest;
 import com.cineverse.dto.BookingDto;
 import com.cineverse.dto.CancelBookingRequest;
 import com.cineverse.dto.CreateBookingRequest;
+import com.cineverse.dto.FoodMenuItemDto;
 import com.cineverse.dto.SeatAvailabilityDto;
 import com.cineverse.service.BookingService;
 import com.cineverse.service.CustomerSession;
@@ -40,6 +41,11 @@ public class BookingController {
     @GetMapping("/shows/{showId}/seats")
     public List<SeatAvailabilityDto> getShowSeats(@PathVariable @Positive Long showId) {
         return bookingService.getSeatsForShow(showId);
+    }
+
+    @GetMapping("/booking-food-menu")
+    public List<FoodMenuItemDto> getFoodMenu() {
+        return bookingService.getFoodMenu();
     }
 
     @PostMapping("/bookings")

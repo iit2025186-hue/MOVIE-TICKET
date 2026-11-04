@@ -29,5 +29,8 @@ public record BookingDto(
         String paymentMethod,
         String paymentStatus,
         String cinemaAddress,
-        BigDecimal ticketPrice) {
+        BigDecimal ticketPrice,
+        BigDecimal seatSubtotal,
+        BigDecimal foodSubtotal,
+        List<FoodOrderDto> foodItems) {
 }

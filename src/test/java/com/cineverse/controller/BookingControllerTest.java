@@ -88,7 +88,7 @@ class BookingControllerTest {
                 "5 Test Road",
                 "Bengaluru",
                 List.of("Parking")));
-        Screen screen = screenRepository.save(new Screen("Booking Screen", 2, 4, cinema));
+        Screen screen = screenRepository.save(new Screen("Booking Screen", 3, 4, cinema));
         LocalDateTime startTime = LocalDateTime.now().plusDays(3);
         Show show = showRepository.save(new Show(
                 movie,
@@ -114,7 +114,9 @@ class BookingControllerTest {
                 .andExpect(jsonPath("$.showId").value(showId))
                 .andExpect(jsonPath("$.seatLabels[0]").value("A1"))
                 .andExpect(jsonPath("$.seatLabels[1]").value("A2"))
-                .andExpect(jsonPath("$.totalPrice").value(25.0))
+                .andExpect(jsonPath("$.seatSubtotal").value(31.26))
+                .andExpect(jsonPath("$.foodSubtotal").value(0.0))
+                .andExpect(jsonPath("$.totalPrice").value(31.26))
                 .andReturn();
 
         JsonNode response = objectMapper.readTree(createResult.getResponse().getContentAsString());
@@ -122,7 +124,7 @@ class BookingControllerTest {
 
         mockMvc.perform(get("/api/shows/{showId}/seats", showId))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(8))
+                .andExpect(jsonPath("$.length()").value(12))
                 .andExpect(jsonPath("$[0].label").value("A1"))
                 .andExpect(jsonPath("$[0].available").value(false))
                 .andExpect(jsonPath("$[2].label").value("A3"))
@@ -133,7 +135,41 @@ class BookingControllerTest {
                 .andExpect(jsonPath("$.id").value(bookingId))
                 .andExpect(jsonPath("$.bookingReference").value(response.get("bookingReference").asText()))
                 .andExpect(jsonPath("$.seatLabels.length()").value(2))
-                .andExpect(jsonPath("$.totalPrice").value(25.0));
+                .andExpect(jsonPath("$.totalPrice").value(31.26));
+    }
+
+    @Test
+    void pricesPremiumAndStandardSeatsAndAddsFoodToTheSavedBooking() throws Exception {
+        mockMvc.perform(get("/api/booking-food-menu"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[0].itemId").value("popcorn"))
+                .andExpect(jsonPath("$[0].unitPrice").value(120.0));
+
+        String request = objectMapper.writeValueAsString(new com.cineverse.dto.CreateBookingRequest(
+                showId,
+                List.of("A1", "C1"),
+                "upi",
+                "SUCCESS",
+                List.of(new com.cineverse.dto.FoodOrderRequest("popcorn", 1))));
+
+        MvcResult result = mockMvc.perform(post("/api/bookings")
+                        .session(customerSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.seatSubtotal").value(28.13))
+                .andExpect(jsonPath("$.foodSubtotal").value(120.0))
+                .andExpect(jsonPath("$.totalPrice").value(148.13))
+                .andExpect(jsonPath("$.foodItems[0].itemId").value("popcorn"))
+                .andExpect(jsonPath("$.foodItems[0].quantity").value(1))
+                .andReturn();
+
+        long bookingId = objectMapper.readTree(result.getResponse().getContentAsString()).path("id").asLong();
+        mockMvc.perform(get("/api/bookings/{bookingId}", bookingId).session(customerSession))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.foodItems[0].name").value("Classic popcorn"))
+                .andExpect(jsonPath("$.foodItems[0].totalPrice").value(120.0));
     }
 
     @Test
@@ -148,10 +184,12 @@ class BookingControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(configuredRequest))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].demo").value(false))
                 .andExpect(jsonPath("$[0].city").value("Bengaluru"))
-                .andExpect(jsonPath("$[0].id").value(showId));
+                .andExpect(jsonPath("$[0].id").value(showId))
+                .andExpect(jsonPath("$[1].cinemaName").value("CineVerse Demo Cinema"))
+                .andExpect(jsonPath("$[2].cinemaName").value("CineVerse Demo Cinema 2"));
 
         String demoRequest = objectMapper.writeValueAsString(new com.cineverse.dto.BookingShowsRequest(
                 "local", movie.getId().toString(), "Prayagraj", showDate));
@@ -200,7 +238,7 @@ class BookingControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(bookingRequest))
                 .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.totalPrice").value(398.0))
+                .andExpect(jsonPath("$.totalPrice").value(497.50))
                 .andExpect(jsonPath("$.city").value("Prayagraj"))
                 .andReturn();
         long bookingId = objectMapper.readTree(bookingResult.getResponse().getContentAsString()).get("id").asLong();

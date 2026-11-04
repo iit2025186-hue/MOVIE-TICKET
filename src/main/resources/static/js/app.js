@@ -25,6 +25,9 @@
     shownRecords: new Map(),
     selectedSeatLabels: new Set(),
     currentBookingShow: null,
+    seatRowsByLabel: new Map(),
+    foodMenu: [],
+    foodQuantities: new Map(),
     bookingNotice: "",
     checkoutMethod: "upi",
     checkoutSubmitting: false,
@@ -285,12 +288,9 @@
     const target = document.getElementById("auth-nav");
     if (!target) return;
     if (state.authUser) {
-      const adminLink = state.authUser.role === "ADMIN"
-        ? `<a class="auth-nav-profile" href="#/admin">Admin</a>`
-        : `<a class="auth-nav-profile" href="#/admin/login">Admin</a>`;
-      target.innerHTML = `${adminLink}<a class="auth-nav-profile" href="#/profile">${escapeHtml(state.authUser.displayName)}</a><button class="auth-nav-logout" type="button" data-logout>Log out</button>`;
+      target.innerHTML = `<a class="auth-nav-profile" href="#/profile">${escapeHtml(state.authUser.displayName)}</a><button class="auth-nav-logout" type="button" data-logout>Log out</button>`;
     } else {
-      target.innerHTML = `<a class="auth-nav-login" href="#/login">Log in</a><a class="auth-nav-signup" href="#/signup">Sign up</a><a class="auth-nav-profile" href="#/admin/login">Admin</a>`;
+      target.innerHTML = `<a class="auth-nav-login" href="#/login">Log in</a><a class="auth-nav-signup" href="#/signup">Sign up</a>`;
     }
     target.title = state.authError;
   }
@@ -720,13 +720,16 @@
           <a class="back-link" href="${source === "local" ? `#/movies/${encodeURIComponent(movieId)}` : `#/discover/${encodeURIComponent(movieId)}`}">${icons.arrow} Movie details</a>
           <span class="eyebrow">Book Tickets · ${source === "tmdb" ? "TMDB movie" : source === "curated" ? "Curated fallback movie" : "CineVerse movie"}</span>
           <h1 class="page-title" id="booking-movie-title">${escapeHtml(movie.title || "Movie")}</h1>
-          <p class="booking-demo-note">CineVerse checks configured showtimes first. If this movie has no configured show in the selected city, clearly labelled demo showtimes use the same secure seat and booking system; demo locations are not real theatres.</p>
+          <p class="booking-demo-note">Real screenings are shown when configured. Any simulated demo locations are clearly marked and are not real theatres.</p>
+          <p class="booking-demo-note" role="status">${state.authUser
+            ? `Showtimes will be shown for ${escapeHtml(state.selectedCity || "your selected city")}.`
+            : `Sign in first to see showtimes in ${escapeHtml(state.selectedCity || "your selected city")}. Your city selection will be kept.`}</p>
           <div class="booking-start-controls">
             <label class="cinema-select-wrap" for="booking-date">Show date
               <select class="cinema-select" id="booking-date">${bookingDates(state.bookingDate)}</select>
             </label>
             <div class="booking-start-city"><span class="eyebrow">Selected city</span><strong>${escapeHtml(state.selectedCity || "Choose a city in the header")}</strong></div>
-            <button class="button button-primary" type="button" data-find-booking-shows ${state.selectedCity ? "" : "disabled"}>Find showtimes ${icons.arrow}</button>
+            <button class="button button-primary" type="button" data-find-booking-shows ${state.selectedCity ? "" : "disabled"}>${state.authUser ? "Find showtimes" : "Sign in to find showtimes"} ${icons.arrow}</button>
           </div>
           <p class="booking-start-feedback" id="booking-start-feedback" role="status" hidden></p>
           <div class="booking-show-results" id="booking-show-results" aria-live="polite"></div>
@@ -757,6 +760,10 @@
       }
       return;
     }
+    if (!state.authUser) {
+      location.hash = `#/login?next=${encodeURIComponent(`#/book/${state.bookingSource}/${state.bookingMovieId}`)}`;
+      return;
+    }
     button.disabled = true;
     button.textContent = "Checking configured and demo showtimes…";
     const feedback = document.getElementById("booking-start-feedback");
@@ -768,17 +775,21 @@
         state.bookingSource, state.bookingMovieId, state.selectedCity, state.bookingDate);
       const bookingShows = Array.isArray(shows) ? shows : [];
       const demoShows = bookingShows.some((show) => show.demo);
+      const cinemaGroups = [...new Map(bookingShows.map((show) => [String(show.cinemaId || show.cinemaName), show])).values()];
       if (results) {
         results.innerHTML = bookingShows.length
-          ? `${demoShows ? `<p class="booking-demo-note" role="status">Demo inventory only — CineVerse Demo Cinema is simulated and is not a real theatre.</p>` : `<p class="booking-demo-note" role="status">These are locally configured showtimes. Availability is checked again when you book.</p>`}
-            <div class="cinema-list">${bookingShows.map((show) => `<article class="cinema-block">
-              <div class="cinema-name-row"><div><h3>${escapeHtml(show.cinemaName)}${show.demo ? " · DEMO" : ""}</h3><p class="cinema-address">${escapeHtml(show.city || state.selectedCity)}</p></div>
-                <span class="cinema-capacity">${escapeHtml(show.screenName)} · ${escapeHtml(show.totalSeatCapacity)} seats</span></div>
-              <div class="show-times"><button class="show-time" type="button" data-show-id="${escapeHtml(show.id)}">
-                <strong>${escapeHtml(formatTime(show.startTime))}</strong>
-                <span>${escapeHtml(formatShowDate(show.startTime))} · ${escapeHtml(priceText(show.ticketPrice))} · Select seats</span>
-              </button></div>
-            </article>`).join("")}</div>`
+          ? `${demoShows ? `<p class="booking-demo-note" role="status">Demo locations are simulated, not real theatres. Locally configured cinemas are shown alongside them where available.</p>` : `<p class="booking-demo-note" role="status">These are locally configured showtimes. Availability is checked again when you book.</p>`}
+            <div class="cinema-list">${cinemaGroups.map((cinema) => {
+              const cinemaShows = bookingShows.filter((show) => String(show.cinemaId || show.cinemaName) === String(cinema.cinemaId || cinema.cinemaName));
+              return `<article class="cinema-block">
+                <div class="cinema-name-row"><div><h3>${escapeHtml(cinema.cinemaName)}${cinema.demo ? " · DEMO" : ""}</h3><p class="cinema-address">${escapeHtml(cinema.city || state.selectedCity)}</p></div>
+                  <span class="cinema-capacity">${escapeHtml(cinemaShows.length)} show${cinemaShows.length === 1 ? "" : "s"} · ${escapeHtml(cinema.totalSeatCapacity)} seats</span></div>
+                <div class="show-times">${cinemaShows.map((show) => `<button class="show-time" type="button" data-show-id="${escapeHtml(show.id)}">
+                  <strong>${escapeHtml(formatTime(show.startTime))}</strong>
+                  <span>${escapeHtml(formatShowDate(show.startTime))} · ${escapeHtml(show.screenName)} · ${escapeHtml(priceText(show.ticketPrice))} · Select seats</span>
+                </button>`).join("")}</div>
+              </article>`;
+            }).join("")}</div>`
           : emptyPanel("No showtimes on this date", "This movie has configured screenings on other dates, or today's demo sessions have already started. Choose another date or city.");
       }
     } catch (error) {
@@ -1592,7 +1603,8 @@
       <p class="booking-location">${escapeHtml(booking.cinemaName)} · ${escapeHtml(booking.cinemaAddress || booking.city || "")} · ${escapeHtml(booking.city || "")} · ${escapeHtml(booking.screenName)} · ${escapeHtml(formatShowDate(booking.startTime))} at ${escapeHtml(formatTime(booking.startTime))}</p>
       <div class="booking-seat-list">${booking.seatLabels.map((seat) => `<span>${escapeHtml(seat)}</span>`).join("")}</div>
       <div class="booking-ticket-details"><div class="booking-record-footer"><span>Booking ID <strong>#${escapeHtml(booking.id)}</strong></span><span>Server total <strong>${escapeHtml(Number(booking.totalPrice).toFixed(2))}</strong></span></div>
-        <div class="booking-record-footer"><span>Tickets <strong>${booking.seatLabels.length}</strong></span><span>Price per ticket <strong>${bookingTicketPrice(booking) == null ? "Unavailable" : escapeHtml(bookingTicketPrice(booking).toFixed(2))}</strong></span></div>
+        <div class="booking-record-footer"><span>Seats subtotal <strong>${escapeHtml(Number(booking.seatSubtotal ?? booking.totalPrice).toFixed(2))}</strong></span><span>Food subtotal <strong>${escapeHtml(Number(booking.foodSubtotal || 0).toFixed(2))}</strong></span></div>
+        ${Array.isArray(booking.foodItems) && booking.foodItems.length ? `<div class="booking-record-footer"><span>Food order <strong>${booking.foodItems.map((item) => `${escapeHtml(item.name)} × ${escapeHtml(item.quantity)}`).join(", ")}</strong></span></div>` : ""}
         ${booking.ticketType ? `<div class="booking-record-footer"><span>Ticket type <strong>${escapeHtml(booking.ticketType)}</strong></span></div>` : ""}
         <div class="booking-record-footer"><span>Payment method <strong>${escapeHtml(booking.paymentMethod || "DEMO")}</strong></span><span>Payment status <strong>${booking.paymentStatus === "SIMULATED_SUCCESS" ? "Success (simulated)" : escapeHtml(booking.paymentStatus || "Success")}</strong></span></div>
         <div class="booking-code-panel">${bookingCodeMarkup(booking.bookingReference)}<div><span class="eyebrow">Booking reference</span><p class="booking-reference">${escapeHtml(booking.bookingReference)}</p><p class="booking-code-note">Illustrative only · not scannable</p></div></div>
@@ -1822,6 +1834,8 @@
   function renderAuthPage(mode, next = "") {
     const signup = mode === "signup";
     const adminLogin = mode === "admin-login";
+    const bookingNext = /^#\/book\/(?:local|tmdb)\/\d+$/.test(next) || /^#\/book\/curated\/[a-z-]+$/.test(next);
+    const bookingCity = bookingNext ? state.selectedCity : "";
     const title = signup ? "Create your account." : adminLogin ? "Administrator sign in." : "Welcome back.";
     const intro = signup
       ? "Save your CineVerse profile and keep your movie nights close."
@@ -1833,7 +1847,9 @@
         <a class="auth-back-link" href="#/">${icons.arrow} Back to CineVerse</a>
         <span class="eyebrow">${signup ? "Join CineVerse" : adminLogin ? "Admin portal" : "Your account"}</span>
         <h1 class="page-title" id="auth-title">${title}</h1>
-        <p class="auth-intro">${intro}</p>
+        <p class="auth-intro">${bookingCity
+          ? `Selected city: ${escapeHtml(bookingCity)}. Sign in to see showtimes there; your city selection will be kept.`
+          : intro}</p>
         <form class="auth-form" data-auth-form="${signup ? "signup" : adminLogin ? "admin-login" : "login"}">
           ${signup ? `<label for="auth-name">Name</label><input id="auth-name" name="displayName" type="text" autocomplete="name" maxlength="80" required placeholder="Your name">` : ""}
           <label for="auth-email">Email</label>
@@ -2051,7 +2067,31 @@
     button.setAttribute("aria-label", `Seat ${button.dataset.seatLabel}, ${status}`);
   }
 
-  function seatSelectionMarkup(show, seats) {
+  function seatPrice(label) {
+    const show = state.currentBookingShow;
+    const rowNumber = state.seatRowsByLabel.get(label);
+    const multiplier = rowNumber <= 2 ? 1.25 : 1;
+    return Math.round((Number(show?.ticketPrice || 0) * multiplier + Number.EPSILON) * 100) / 100;
+  }
+
+  function selectedSeatSubtotal() {
+    return [...state.selectedSeatLabels].reduce((total, label) => total + seatPrice(label), 0);
+  }
+
+  function selectedFoodOrders() {
+    return [...state.foodQuantities.entries()]
+      .filter(([, quantity]) => quantity > 0)
+      .map(([itemId, quantity]) => ({ itemId, quantity }));
+  }
+
+  function selectedFoodSubtotal() {
+    return selectedFoodOrders().reduce((total, order) => {
+      const item = state.foodMenu.find((menuItem) => menuItem.itemId === order.itemId);
+      return total + Number(item?.unitPrice || 0) * order.quantity;
+    }, 0);
+  }
+
+  function seatSelectionMarkup(show, seats, foodMenu) {
     const rows = new Map();
     seats.forEach((seat) => {
       if (!rows.has(seat.rowNumber)) rows.set(seat.rowNumber, []);
@@ -2060,8 +2100,9 @@
     const canBook = show.status === "SCHEDULED" && new Date(show.startTime) > new Date();
     const rowMarkup = [...rows.entries()].map(([, rowSeats]) => {
       const rowLabel = rowSeats[0].label.replace(/\d+$/, "");
+      const premium = rowSeats[0].rowNumber <= 2;
       return `<div class="seat-row" role="group" aria-label="Row ${escapeHtml(rowLabel)}">${rowSeats.map((seat) =>
-        `<button class="seat-button ${seat.available ? state.selectedSeatLabels.has(seat.label) ? "selected" : "available" : "unavailable"}" type="button" data-seat-label="${escapeHtml(seat.label)}" aria-pressed="${seat.available && state.selectedSeatLabels.has(seat.label)}" aria-label="Seat ${escapeHtml(seat.label)}, ${seat.available ? state.selectedSeatLabels.has(seat.label) ? "selected" : "available" : "booked"}" ${seat.available ? "" : "disabled"}>${escapeHtml(seat.label)}</button>`
+        `<button class="seat-button ${premium ? "premium" : "standard"} ${seat.available ? state.selectedSeatLabels.has(seat.label) ? "selected" : "available" : "unavailable"}" type="button" data-seat-label="${escapeHtml(seat.label)}" aria-pressed="${seat.available && state.selectedSeatLabels.has(seat.label)}" aria-label="Seat ${escapeHtml(seat.label)}, ${premium ? "Premium" : "Standard"}, ${seat.available ? state.selectedSeatLabels.has(seat.label) ? "selected" : "available" : "booked"}" ${seat.available ? "" : "disabled"}>${escapeHtml(seat.label)}</button>`
       ).join("")}</div>`;
     }).join("");
     return `<section class="seat-selection-page page-wrap" aria-labelledby="seat-page-title">
@@ -2074,7 +2115,11 @@
         <section class="seat-map-panel" aria-label="Seat selection">
           <div class="cinema-screen" aria-hidden="true">SCREEN</div>
           <div class="seat-map" aria-label="Available seats">${rowMarkup}</div>
-          <div class="seat-legend"><span><i class="legend-seat available"></i>Available</span><span><i class="legend-seat selected"></i>Selected</span><span><i class="legend-seat unavailable"></i>Booked</span></div>
+          <div class="seat-legend"><span><i class="legend-seat premium"></i>Premium · front 2 rows · +25%</span><span><i class="legend-seat standard"></i>Standard · other rows</span><span><i class="legend-seat selected"></i>Selected</span><span><i class="legend-seat unavailable"></i>Booked</span></div>
+          <section class="food-order-panel" aria-labelledby="food-order-title">
+            <div class="food-order-heading"><div><span class="eyebrow">Before the trailers</span><h2 id="food-order-title">Add snacks</h2></div><span>Added to your bill</span></div>
+            <div class="food-menu">${foodMenu.map((item) => `<label class="food-menu-item"><span><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.description)}</small></span><span class="food-menu-price">${escapeHtml(Number(item.unitPrice).toFixed(2))}</span><input type="number" min="0" max="10" step="1" value="${state.foodQuantities.get(item.itemId) || 0}" aria-label="Quantity of ${escapeHtml(item.name)}" data-food-quantity="${escapeHtml(item.itemId)}"></label>`).join("")}</div>
+          </section>
         </section>
         <aside class="seat-checkout-panel" aria-label="Booking summary">
           <span class="eyebrow">Your selection</span>
@@ -2084,8 +2129,11 @@
             ).join("")}</select>
           </label>
           <p class="selected-seat-summary" id="selected-seat-summary">No seats selected</p>
+          <p class="food-selection-summary" id="food-selection-summary">No snacks added</p>
           <p class="booking-feedback" id="booking-feedback" role="alert" ${state.bookingNotice ? "" : "hidden"}>${escapeHtml(state.bookingNotice)}</p>
-          <p class="selected-total">Total <strong id="booking-total">0.00</strong></p>
+          <p class="selected-total"><span>Seats</span><strong id="booking-seat-total">0.00</strong></p>
+          <p class="selected-total"><span>Food</span><strong id="booking-food-total">0.00</strong></p>
+          <p class="selected-total booking-grand-total"><span>Total</span><strong id="booking-total">0.00</strong></p>
           <button class="button button-primary booking-submit" type="button" data-confirm-booking disabled>Select at least one seat</button>
           ${canBook ? "" : `<p class="booking-feedback">This show is no longer accepting reservations.</p>`}
         </aside>
@@ -2098,17 +2146,20 @@
     if (!keepSelection) {
       state.selectedSeatLabels = new Set();
       state.ticketCount = 1;
+      state.foodQuantities = new Map();
     }
     app.innerHTML = `<div class="page-wrap detail-body">${statePanel("Loading seat map", "Checking this show's seat availability.", "")}</div>`;
     try {
-      const [show, seats] = await Promise.all([api.getShow(showId), api.getSeatsForShow(showId)]);
+      const [show, seats, foodMenu] = await Promise.all([api.getShow(showId), api.getSeatsForShow(showId), api.getFoodMenu()]);
       if (viewId !== state.viewSequence) return;
       const availableLabels = new Set(seats.filter((seat) => seat.available).map((seat) => seat.label));
       state.selectedSeatLabels.forEach((label) => {
         if (!availableLabels.has(label)) state.selectedSeatLabels.delete(label);
       });
       state.currentBookingShow = show;
-      app.innerHTML = seatSelectionMarkup(show, seats);
+      state.seatRowsByLabel = new Map(seats.map((seat) => [seat.label, seat.rowNumber]));
+      state.foodMenu = Array.isArray(foodMenu) ? foodMenu : [];
+      app.innerHTML = seatSelectionMarkup(show, seats, state.foodMenu);
       state.bookingNotice = "";
       updateBookingSelection();
       if (show.status !== "SCHEDULED" || new Date(show.startTime) <= new Date()) {
@@ -2125,12 +2176,22 @@
     const show = state.currentBookingShow;
     if (!show) return;
     const count = state.selectedSeatLabels.size;
-    const total = (Number(show.ticketPrice) * count).toFixed(2);
+    const seatSubtotal = selectedSeatSubtotal();
+    const foodSubtotal = selectedFoodSubtotal();
+    const total = (seatSubtotal + foodSubtotal).toFixed(2);
     const summary = document.getElementById("selected-seat-summary");
+    const foodSummary = document.getElementById("food-selection-summary");
+    const seatTotalElement = document.getElementById("booking-seat-total");
+    const foodTotalElement = document.getElementById("booking-food-total");
     const totalElement = document.getElementById("booking-total");
     const button = app.querySelector("[data-confirm-booking]");
     if (summary) summary.textContent = count ? `${[...state.selectedSeatLabels].sort().join(", ")} · ${count} of ${state.ticketCount} tickets`
       : `Select ${state.ticketCount} ${state.ticketCount === 1 ? "seat" : "seats"}`;
+    if (foodSummary) foodSummary.textContent = selectedFoodOrders().length
+      ? selectedFoodOrders().map((order) => `${state.foodMenu.find((item) => item.itemId === order.itemId)?.name || order.itemId} × ${order.quantity}`).join(", ")
+      : "No snacks added";
+    if (seatTotalElement) seatTotalElement.textContent = seatSubtotal.toFixed(2);
+    if (foodTotalElement) foodTotalElement.textContent = foodSubtotal.toFixed(2);
     if (totalElement) totalElement.textContent = total;
     if (button && new Date(show.startTime) > new Date() && show.status === "SCHEDULED") {
       button.disabled = count !== state.ticketCount;
@@ -2152,7 +2213,10 @@
       location.hash = "#/movies";
       return;
     }
-    const total = (Number(show.ticketPrice) * labels.length).toFixed(2);
+    const seatSubtotal = selectedSeatSubtotal();
+    const foodSubtotal = selectedFoodSubtotal();
+    const total = (seatSubtotal + foodSubtotal).toFixed(2);
+    const foodItems = selectedFoodOrders();
     const paymentMethods = [
       ["upi", "UPI", "U"],
       ["card", "Card", "C"],
@@ -2198,7 +2262,14 @@
           <p>${escapeHtml(show.cinemaName)} · ${escapeHtml(show.city || state.selectedCity || "")} · ${escapeHtml(show.screenName)}</p>
           <p>${escapeHtml(formatShowDate(show.startTime))} at ${escapeHtml(formatTime(show.startTime))}</p>
           <div class="checkout-seat-list">${labels.map((label) => `<span>${escapeHtml(label)}</span>`).join("")}</div>
-          <div class="checkout-total"><span>${labels.length} ${labels.length === 1 ? "seat" : "seats"} · ${Number(show.ticketPrice).toFixed(2)} each</span><strong>${total}</strong></div>
+          <div class="checkout-price-lines"><div><span>Seats${labels.some((label) => state.seatRowsByLabel.get(label) <= 2) ? " (includes Premium)" : ""}</span><strong>${seatSubtotal.toFixed(2)}</strong></div>
+            <div><span>Food</span><strong>${foodSubtotal.toFixed(2)}</strong></div>
+            ${foodItems.length ? `<ul>${foodItems.map((order) => {
+              const item = state.foodMenu.find((menuItem) => menuItem.itemId === order.itemId);
+              return `<li>${escapeHtml(item?.name || order.itemId)} × ${order.quantity}<span>${(Number(item?.unitPrice || 0) * order.quantity).toFixed(2)}</span></li>`;
+            }).join("")}</ul>` : ""}
+          </div>
+          <div class="checkout-total"><span>Total due</span><strong>${total}</strong></div>
         </aside>
       </div>
       ${paymentDialogs}
@@ -2238,7 +2309,7 @@
     }
     if (feedback) feedback.textContent = "Payment successful. Saving your ticket…";
     try {
-      const booking = await api.createBooking(show.id, labels, state.checkoutMethod);
+      const booking = await api.createBooking(show.id, labels, state.checkoutMethod, selectedFoodOrders());
       saveBooking(booking);
       dialog?.close();
       location.hash = `#/bookings/${encodeURIComponent(booking.id)}`;
@@ -2320,7 +2391,7 @@
     state.viewSequence += 1;
     if (route.name !== "home") stopSpotlightTimer();
     const viewId = state.viewSequence;
-    if (["bookingStart", "seats", "checkout", "ticket"].includes(route.name)) {
+    if (["seats", "checkout", "ticket"].includes(route.name) || (route.name === "bookingStart" && !state.authReady)) {
       if (!state.authReady) {
         app.innerHTML = `<div class="page-wrap detail-body">${statePanel("Checking your account", "Please wait while CineVerse verifies your sign-in.", "")}</div>`;
         return;
@@ -2520,6 +2591,14 @@
   });
 
   app.addEventListener("change", (event) => {
+    const foodQuantity = event.target.closest("[data-food-quantity]");
+    if (foodQuantity) {
+      const quantity = Math.min(10, Math.max(0, Number(foodQuantity.value) || 0));
+      foodQuantity.value = String(quantity);
+      state.foodQuantities.set(foodQuantity.dataset.foodQuantity, quantity);
+      updateBookingSelection();
+      return;
+    }
     const countSelect = event.target.closest("#ticket-count");
     if (countSelect) {
       const selectedCount = state.selectedSeatLabels.size;

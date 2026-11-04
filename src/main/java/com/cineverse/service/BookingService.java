@@ -1,6 +1,7 @@
 package com.cineverse.service;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -15,9 +16,13 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.cineverse.dto.BookingDto;
 import com.cineverse.dto.CreateBookingRequest;
+import com.cineverse.dto.FoodMenuItemDto;
+import com.cineverse.dto.FoodOrderDto;
+import com.cineverse.dto.FoodOrderRequest;
 import com.cineverse.dto.SeatAvailabilityDto;
 import com.cineverse.entity.Booking;
 import com.cineverse.entity.BookingAftercareType;
+import com.cineverse.entity.BookingFoodItem;
 import com.cineverse.entity.BookingSeat;
 import com.cineverse.entity.CustomerAccount;
 import com.cineverse.entity.Seat;
@@ -35,6 +40,13 @@ import com.cineverse.repository.ShowRepository;
 
 @Service
 public class BookingService {
+
+    private static final BigDecimal PREMIUM_MULTIPLIER = new BigDecimal("1.25");
+    private static final List<FoodMenuItemDto> FOOD_MENU = List.of(
+            new FoodMenuItemDto("popcorn", "Classic popcorn", "Freshly popped, salted", new BigDecimal("120.00")),
+            new FoodMenuItemDto("cola", "Cola", "Chilled 500 ml", new BigDecimal("80.00")),
+            new FoodMenuItemDto("nachos", "Nachos", "Cheese dip included", new BigDecimal("180.00")),
+            new FoodMenuItemDto("combo", "Movie combo", "Popcorn and two colas", new BigDecimal("250.00")));
 
     private final BookingRepository bookingRepository;
     private final BookingSeatRepository bookingSeatRepository;
@@ -68,6 +80,11 @@ public class BookingService {
                         seat.getSeatNumber(),
                         !bookedSeatIds.contains(seat.getId())))
                 .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<FoodMenuItemDto> getFoodMenu() {
+        return FOOD_MENU;
     }
 
     @Transactional
@@ -111,17 +128,43 @@ public class BookingService {
                     "These seats are no longer available for this show: " + String.join(", ", unavailableLabels));
         }
 
-        BigDecimal totalPrice = show.getTicketPrice()
-                .multiply(BigDecimal.valueOf(selectedSeats.size()))
-                .setScale(2);
+        BigDecimal seatSubtotal = selectedSeats.stream()
+            .map(seat -> seat.getRowNumber() <= 2
+                ? show.getTicketPrice().multiply(PREMIUM_MULTIPLIER).setScale(2, RoundingMode.HALF_UP)
+                : show.getTicketPrice().setScale(2, RoundingMode.HALF_UP))
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<FoodOrderRequest> requestedFood = request.foodItems() == null ? List.of() : request.foodItems();
+        Map<String, FoodMenuItemDto> menuById = FOOD_MENU.stream()
+            .collect(java.util.stream.Collectors.toMap(FoodMenuItemDto::itemId, item -> item));
+        List<FoodMenuItemDto> orderedFood = requestedFood.stream()
+            .map(item -> {
+                FoodMenuItemDto menuItem = menuById.get(item.itemId());
+                if (menuItem == null) {
+                throw new InvalidRequestException(
+                    "One or more food items are not available",
+                    Map.of("foodItems", "Choose items from the CineVerse menu"));
+                }
+                return menuItem;
+            })
+            .toList();
+        BigDecimal foodSubtotal = requestedFood.stream()
+            .map(item -> menuById.get(item.itemId()).unitPrice().multiply(BigDecimal.valueOf(item.quantity())))
+            .reduce(BigDecimal.ZERO, BigDecimal::add)
+            .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalPrice = seatSubtotal.add(foodSubtotal).setScale(2, RoundingMode.HALF_UP);
         String reference = "CV-" + UUID.randomUUID().toString().toUpperCase(Locale.ROOT);
         CustomerAccount customer = customerAccountId == null ? null : customerAccountRepository.findById(customerAccountId)
                 .orElseThrow(() -> new com.cineverse.exception.ResourceNotFoundException("Customer", customerAccountId));
         String paymentMethod = request.paymentMethod() == null
                 ? "DEMO"
                 : request.paymentMethod().toUpperCase(Locale.ROOT);
-        Booking booking = new Booking(reference, show, totalPrice, customer, paymentMethod);
+        Booking booking = new Booking(reference, show, totalPrice, seatSubtotal, foodSubtotal, customer, paymentMethod);
         selectedSeats.forEach(booking::addSeat);
+        for (int index = 0; index < requestedFood.size(); index++) {
+            FoodOrderRequest order = requestedFood.get(index);
+            FoodMenuItemDto item = orderedFood.get(index);
+            booking.addFoodItem(item.itemId(), item.name(), order.quantity(), item.unitPrice());
+        }
         return toDto(bookingRepository.save(booking));
     }
 
@@ -225,6 +268,17 @@ public class BookingService {
                 booking.getPaymentMethod() == null ? "DEMO" : booking.getPaymentMethod(),
                 "SIMULATED_SUCCESS",
                 show.getScreen().getCinema().getAddress(),
-                show.getTicketPrice());
+                show.getTicketPrice(),
+                booking.getSeatSubtotal(),
+                booking.getFoodSubtotal(),
+                booking.getFoodItems().stream()
+                    .map(item -> new FoodOrderDto(
+                        item.getItemId(),
+                        item.getName(),
+                        item.getQuantity(),
+                        item.getUnitPrice(),
+                        item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity()))
+                            .setScale(2, RoundingMode.HALF_UP)))
+                    .toList());
     }
 }

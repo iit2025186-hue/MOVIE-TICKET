@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -30,7 +31,8 @@ import com.cineverse.repository.ShowRepository;
 @Service
 public class BookingShowsService {
 
-    private static final String DEMO_CINEMA_NAME = "CineVerse Demo Cinema";
+    private static final List<String> DEMO_CINEMA_NAMES = List.of(
+            "CineVerse Demo Cinema", "CineVerse Demo Cinema 2", "CineVerse Demo Cinema 3");
     private static final Set<String> CITIES = Set.of(
             "Ahmedabad", "Bengaluru", "Bhopal", "Bhubaneswar", "Chandigarh", "Chennai",
             "Coimbatore", "Dehradun", "Delhi", "Goa", "Guwahati", "Hyderabad", "Indore",
@@ -93,28 +95,15 @@ public class BookingShowsService {
         List<Show> configuredShows = cityShows.stream()
                 .filter(show -> !isDemoCinema(show) && show.getStartTime().toLocalDate().equals(date))
                 .toList();
-        if (!configuredShows.isEmpty()) {
-            return configuredShows.stream()
-                    .map(BookingShowsService::toDto)
-                    .toList();
-        }
         List<Show> existingDemoShows = cityShows.stream()
                 .filter(BookingShowsService::isDemoCinema)
                 .filter(show -> show.getStartTime().toLocalDate().equals(date))
                 .toList();
-        if (!existingDemoShows.isEmpty()) {
-            return existingDemoShows.stream().map(BookingShowsService::toDto).toList();
-        }
-
-        Cinema cinema = cinemaRepository.findFirstByNameAndCityOrderByIdAsc(DEMO_CINEMA_NAME, city)
-                .orElseGet(() -> cinemaRepository.save(new Cinema(
-                        DEMO_CINEMA_NAME,
-                        "Simulation inventory only — no real theatre",
-                        city,
-                        List.of("Demo inventory"))));
-        String screenName = "Demo Screen " + movie.getId();
-        Screen screen = screenRepository.findByCinema_IdAndName(cinema.getId(), screenName)
-                .orElseGet(() -> screenRepository.save(new Screen(screenName, 6, 10, cinema)));
+        List<Show> bookingShows = new ArrayList<>(configuredShows);
+        bookingShows.addAll(existingDemoShows);
+        Set<Long> scheduledCinemaIds = bookingShows.stream()
+                .map(show -> show.getScreen().getCinema().getId())
+                .collect(Collectors.toSet());
 
         LocalDateTime now = LocalDateTime.now();
         List<LocalTime> startTimes = DEMO_START_TIMES.stream()
@@ -126,20 +115,35 @@ public class BookingShowsService {
                 startTimes = List.of(nextHour);
             }
         }
-        for (LocalTime startTime : startTimes) {
+        int demoCinemaIndex = 0;
+        for (String demoCinemaName : DEMO_CINEMA_NAMES) {
+            if (scheduledCinemaIds.size() >= 3 || startTimes.isEmpty()) {
+                break;
+            }
+            Cinema cinema = cinemaRepository.findFirstByNameAndCityOrderByIdAsc(demoCinemaName, city)
+                    .orElseGet(() -> cinemaRepository.save(new Cinema(
+                            demoCinemaName,
+                            "Simulation inventory only — no real theatre",
+                            city,
+                            List.of("Demo inventory"))));
+            if (!scheduledCinemaIds.add(cinema.getId())) {
+                continue;
+            }
+            String screenName = "Demo Screen " + movie.getId();
+            Screen screen = screenRepository.findByCinema_IdAndName(cinema.getId(), screenName)
+                    .orElseGet(() -> screenRepository.save(new Screen(screenName, 6, 10, cinema)));
+            LocalTime startTime = startTimes.get(demoCinemaIndex % startTimes.size());
+            demoCinemaIndex++;
             LocalDateTime startsAt = LocalDateTime.of(date, startTime);
-            showRepository.save(new Show(
+            bookingShows.add(showRepository.save(new Show(
                     movie,
                     screen,
                     startsAt,
                     startsAt.plusHours(2),
                     new BigDecimal("199.00"),
-                    ShowStatus.SCHEDULED));
+                    ShowStatus.SCHEDULED)));
         }
-        return showRepository.findByMovie_IdOrderByStartTimeAsc(movie.getId()).stream()
-                .filter(show -> show.getStatus() == ShowStatus.SCHEDULED
-                        && show.getStartTime().toLocalDate().equals(date)
-                        && show.getScreen().getCinema().getCity().equalsIgnoreCase(city))
+        return bookingShows.stream()
                 .map(BookingShowsService::toDto)
                 .toList();
     }
@@ -265,7 +269,7 @@ public class BookingShowsService {
     }
 
     private static boolean isDemoCinema(Show show) {
-        return show.getScreen().getCinema().getName().equals(DEMO_CINEMA_NAME);
+                return DEMO_CINEMA_NAMES.contains(show.getScreen().getCinema().getName());
     }
 
     private record CuratedMovie(

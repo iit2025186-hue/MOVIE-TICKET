@@ -45,6 +45,12 @@ public class Booking {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal totalPrice;
 
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal seatSubtotal;
+
+    @Column(nullable = false, precision = 10, scale = 2)
+    private BigDecimal foodSubtotal;
+
     @Column(length = 20)
     private String paymentMethod;
 
@@ -69,16 +75,19 @@ public class Booking {
     @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<BookingSeat> bookedSeats = new ArrayList<>();
 
+    @OneToMany(mappedBy = "booking", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<BookingFoodItem> foodItems = new ArrayList<>();
+
     protected Booking() {
         // Required by JPA.
     }
 
     public Booking(String bookingReference, Show show, BigDecimal totalPrice) {
-        this(bookingReference, show, totalPrice, null, "DEMO");
+        this(bookingReference, show, totalPrice, totalPrice, BigDecimal.ZERO, null, "DEMO");
     }
 
     public Booking(String bookingReference, Show show, BigDecimal totalPrice, CustomerAccount customerAccount) {
-        this(bookingReference, show, totalPrice, customerAccount, "DEMO");
+        this(bookingReference, show, totalPrice, totalPrice, BigDecimal.ZERO, customerAccount, "DEMO");
     }
 
     public Booking(
@@ -87,9 +96,22 @@ public class Booking {
             BigDecimal totalPrice,
             CustomerAccount customerAccount,
             String paymentMethod) {
+        this(bookingReference, show, totalPrice, totalPrice, BigDecimal.ZERO, customerAccount, paymentMethod);
+    }
+
+    public Booking(
+            String bookingReference,
+            Show show,
+            BigDecimal totalPrice,
+            BigDecimal seatSubtotal,
+            BigDecimal foodSubtotal,
+            CustomerAccount customerAccount,
+            String paymentMethod) {
         this.bookingReference = bookingReference;
         this.show = show;
         this.totalPrice = totalPrice;
+        this.seatSubtotal = seatSubtotal;
+        this.foodSubtotal = foodSubtotal;
         this.customerAccount = customerAccount;
         this.paymentMethod = paymentMethod;
         this.status = BookingStatus.CONFIRMED;
@@ -98,6 +120,10 @@ public class Booking {
 
     public void addSeat(Seat seat) {
         bookedSeats.add(new BookingSeat(this, show, seat));
+    }
+
+    public void addFoodItem(String itemId, String name, int quantity, BigDecimal unitPrice) {
+        foodItems.add(new BookingFoodItem(this, itemId, name, quantity, unitPrice));
     }
 
     public void cancel(String reason) {
@@ -134,6 +160,18 @@ public class Booking {
 
     public BigDecimal getTotalPrice() {
         return totalPrice;
+    }
+
+    public BigDecimal getSeatSubtotal() {
+        return seatSubtotal;
+    }
+
+    public BigDecimal getFoodSubtotal() {
+        return foodSubtotal;
+    }
+
+    public List<BookingFoodItem> getFoodItems() {
+        return List.copyOf(foodItems);
     }
 
     public String getPaymentMethod() {
