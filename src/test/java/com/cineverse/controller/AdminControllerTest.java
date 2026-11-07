@@ -25,7 +25,7 @@ import com.cineverse.repository.BookingRepository;
 import com.cineverse.repository.CustomerAccountRepository;
 import com.cineverse.service.CustomerSession;
 
-@SpringBootTest
+@SpringBootTest(properties = "cineverse.admin.id=test-admin-id")
 @AutoConfigureMockMvc
 class AdminControllerTest {
 
@@ -65,7 +65,7 @@ class AdminControllerTest {
                         .session(customerSession)
                         .header("X-CSRF-Token", customerToken)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"customer@test.local\",\"password\":\"customer-password\"}"))
+                        .content("{\"email\":\"customer@test.local\",\"password\":\"customer-password\",\"adminId\":\"test-admin-id\"}"))
                 .andExpect(status().isUnauthorized());
 
         MockHttpSession adminSession = new MockHttpSession();
@@ -82,9 +82,60 @@ class AdminControllerTest {
                         .session(validAdminSession)
                         .header("X-CSRF-Token", csrfToken(validAdminSession))
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"email\":\"admin@test.local\",\"password\":\"admin-password\"}"))
+                        .content("{\"email\":\"admin@test.local\",\"password\":\"admin-password\",\"adminId\":\"wrong-id\"}"))
+                .andExpect(status().isUnauthorized());
+
+        validAdminSession = new MockHttpSession();
+        mockMvc.perform(post("/api/auth/admin/login")
+                        .session(validAdminSession)
+                        .header("X-CSRF-Token", csrfToken(validAdminSession))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"email\":\"admin@test.local\",\"password\":\"admin-password\",\"adminId\":\"test-admin-id\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.role").value("ADMIN"));
+    }
+
+    @Test
+    void showPricesCanOnlyBeChangedByCsrfVerifiedAdmins() throws Exception {
+        mockMvc.perform(get("/api/admin/shows"))
+                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/api/admin/shows").session(sessionFor(customer)))
+                .andExpect(status().isForbidden());
+
+        MockHttpSession adminSession = sessionFor(admin);
+        JsonNode shows = objectMapper.readTree(mockMvc.perform(get("/api/admin/shows").session(adminSession))
+                .andExpect(status().isOk())
+                .andReturn().getResponse().getContentAsString());
+        org.junit.jupiter.api.Assertions.assertTrue(shows.size() > 0);
+        long showId = shows.get(0).path("id").asLong();
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/admin/shows/{showId}/price", showId)
+                        .session(adminSession)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ticketPrice\":777.25}"))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/admin/shows/{showId}/price", showId)
+                        .session(adminSession)
+                        .header("X-CSRF-Token", csrfToken(adminSession))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ticketPrice\":777.25}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ticketPrice").value(777.25));
+        mockMvc.perform(get("/api/shows/{showId}", showId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ticketPrice").value(777.25));
+
+        MockHttpSession customerSession = sessionFor(customer);
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch(
+                        "/api/admin/shows/{showId}/price", showId)
+                        .session(customerSession)
+                        .header("X-CSRF-Token", csrfToken(customerSession))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ticketPrice\":888.00}"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -123,8 +174,9 @@ class AdminControllerTest {
         mockMvc.perform(post("/api/bookings")
                         .session(adminSession)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"showId\":" + showId + ",\"seatLabels\":[\"" + seatLabel + "\"]}"))
-                .andExpect(status().isCreated());
+                        .content("{\"showId\":" + showId + ",\"seatLabels\":[\"" + seatLabel
+                                + "\"],\"paymentMethod\":\"CARD\",\"paymentOutcome\":\"SUCCESS\"}"))
+                        .andExpect(status().isCreated());
 
         String showDate = selectedShow.path("startTime").asText().substring(0, 10);
         mockMvc.perform(get("/api/admin/dashboard")

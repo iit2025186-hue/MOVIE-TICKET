@@ -784,10 +784,18 @@ main { min-height: calc(100dvh - 76px); }
 .admin-page { min-height: calc(100dvh - 76px); padding: 77px 0 100px; }
 .admin-page > .eyebrow { display: flex; }
 .admin-intro { max-width: 620px; margin: 14px 0 0; color: #aaa3a1; font-size: 13px; line-height: 1.75; }
+.admin-subsection-tabs { display: flex; gap: 8px; margin-top: 25px; padding: 5px; border: 1px solid var(--line); border-radius: 10px; background: rgba(24,23,24,.55); }
+.admin-subsection-tab { min-height: 40px; padding: 0 17px; border: 0; border-radius: 7px; background: transparent; color: #aaa3a1; font: inherit; font-size: 11px; font-weight: 600; cursor: pointer; }
+.admin-subsection-tab:hover { color: #fff; }
+.admin-subsection-tab[aria-selected="true"] { background: var(--accent); color: #fff; }
+.admin-subsection-panel { margin-top: 18px; }
 .admin-report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 25px; padding: 17px; border: 1px solid var(--line); border-radius: 12px; background: rgba(24,23,24,.55); }
-.admin-report-filters label { display: grid; gap: 7px; color: #a9a2a0; font-size: 10px; }
+.admin-filter-date-fields, .admin-filter-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.admin-report-filters label { display: grid; gap: 7px; min-width: 165px; color: #a9a2a0; font-size: 10px; }
 .admin-report-filters input { min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #171617; color: #f5f1ef; font: inherit; color-scheme: dark; }
 .admin-report-filters .button { min-height: 39px; font-size: 10px; }
+.admin-filter-note, .admin-filter-error { flex-basis: 100%; margin: 0; color: #88817f; font-size: 9px; line-height: 1.5; }
+.admin-filter-error { color: #ff8589; }
 .admin-dashboard-results { margin-top: 20px; }
 .admin-summary-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; }
 .admin-summary-card { display: grid; gap: 8px; padding: 18px 19px; border: 1px solid var(--line); border-radius: 11px; background: linear-gradient(145deg,rgba(33,30,31,.92),rgba(22,21,22,.9)); }
@@ -821,6 +829,10 @@ main { min-height: calc(100dvh - 76px); }
 .admin-booking-table td strong { color: #f4efec; }
 .admin-empty-row { padding: 28px !important; color: #938b88 !important; text-align: center; }
 .admin-data-note { margin: 14px 0 0; color: #777170; font-size: 9px; line-height: 1.6; }
+.admin-price-form { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 230px; }
+.admin-price-input { width: 110px; min-height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: #171617; color: #f5f1ef; font: inherit; color-scheme: dark; }
+.admin-price-form .button { min-height: 36px; padding: 0 10px; font-size: 9px; }
+.admin-price-feedback { flex-basis: 100%; color: #aaa3a1; font-size: 9px; }
 .bookings-page { min-height: calc(100dvh - 76px); padding: 77px 0 100px; }
 .customer-bookings-page > .eyebrow { display: flex; }
 .bookings-intro { max-width: 540px; margin: 14px 0 0; color: #aaa3a1; font-size: 13px; line-height: 1.75; }
@@ -1430,6 +1442,7 @@ main { min-height: calc(100dvh - 76px); }
 :root[data-theme="light"] .admin-report-filters input,
 :root[data-theme="light"] .admin-table-filters input,
 :root[data-theme="light"] .admin-table-filters select,
+:root[data-theme="light"] .admin-price-input,
 :root[data-theme="light"] .checkout-method-panel select,
 :root[data-theme="light"] .demo-payment-details input,
 :root[data-theme="light"] .demo-payment-details select,
@@ -1438,6 +1451,11 @@ main { min-height: calc(100dvh - 76px); }
   background: #fbfaf7;
   color: #292724;
 }
+:root[data-theme="light"] .admin-subsection-tabs { background: rgba(255,255,255,.55); }
+:root[data-theme="light"] .admin-subsection-tab { color: #665f58; }
+:root[data-theme="light"] .admin-subsection-tab:hover { color: #292724; }
+:root[data-theme="light"] .admin-subsection-tab[aria-selected="true"],
+:root[data-theme="light"] .admin-subsection-tab[aria-selected="true"]:hover { color: #fff; }
 :root[data-theme="light"] .booking-code-panel .eyebrow { color: #514c46; }
 :root[data-theme="light"] .booking-record-footer strong,
 :root[data-theme="light"] .selected-total strong,

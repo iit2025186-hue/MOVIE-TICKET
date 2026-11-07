@@ -94,6 +94,10 @@ public class Show {
         return ticketPrice;
     }
 
+    public void setTicketPrice(BigDecimal ticketPrice) {
+        this.ticketPrice = ticketPrice;
+    }
+
     public ShowStatus getStatus() {
         return status;
     }

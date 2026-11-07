@@ -2,14 +2,13 @@ package com.cineverse.controller;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.security.SecureRandom;
-import java.util.Base64;
 import java.util.Map;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import jakarta.validation.Valid;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,6 +24,7 @@ import com.cineverse.dto.LoginRequest;
 import com.cineverse.dto.RegisterRequest;
 import com.cineverse.entity.AccountRole;
 import com.cineverse.service.BookingService;
+import com.cineverse.service.CsrfTokenService;
 import com.cineverse.service.CustomerAccountService;
 import com.cineverse.service.CustomerSession;
 
@@ -32,20 +32,25 @@ import com.cineverse.service.CustomerSession;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    private static final String CSRF_TOKEN = AuthController.class.getName() + ".csrfToken";
-    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
-
     private final CustomerAccountService accountService;
     private final BookingService bookingService;
+    private final CsrfTokenService csrfTokenService;
+    private final String adminId;
 
-    public AuthController(CustomerAccountService accountService, BookingService bookingService) {
+    public AuthController(
+            CustomerAccountService accountService,
+            BookingService bookingService,
+            CsrfTokenService csrfTokenService,
+            @Value("${cineverse.admin.id:}") String adminId) {
         this.accountService = accountService;
         this.bookingService = bookingService;
+        this.csrfTokenService = csrfTokenService;
+        this.adminId = adminId == null ? "" : adminId;
     }
 
     @GetMapping("/csrf")
     public CsrfTokenDto csrfToken(HttpSession session) {
-        return new CsrfTokenDto(createCsrfToken(session));
+        return new CsrfTokenDto(csrfTokenService.getOrCreate(session));
     }
 
     @PostMapping("/register")
@@ -54,7 +59,7 @@ public class AuthController {
             @RequestHeader(value = "X-CSRF-Token", required = false) String suppliedToken,
             HttpServletRequest servletRequest) {
         HttpSession session = servletRequest.getSession();
-        if (!validCsrfToken(session, suppliedToken)) return csrfRejected();
+        if (!csrfTokenService.isValid(session, suppliedToken)) return csrfRejected();
         CustomerProfileDto profile = accountService.register(request);
         servletRequest.changeSessionId();
         session.setAttribute(CustomerSession.ACCOUNT_ID_ATTRIBUTE, profile.id());
@@ -67,7 +72,7 @@ public class AuthController {
             @RequestHeader(value = "X-CSRF-Token", required = false) String suppliedToken,
             HttpServletRequest servletRequest) {
         HttpSession session = servletRequest.getSession();
-        if (!validCsrfToken(session, suppliedToken)) return csrfRejected();
+        if (!csrfTokenService.isValid(session, suppliedToken)) return csrfRejected();
         var profile = accountService.authenticate(request);
         if (profile.isEmpty() || profile.get().role() != AccountRole.CUSTOMER) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -84,11 +89,15 @@ public class AuthController {
             @RequestHeader(value = "X-CSRF-Token", required = false) String suppliedToken,
             HttpServletRequest servletRequest) {
         HttpSession session = servletRequest.getSession();
-        if (!validCsrfToken(session, suppliedToken)) return csrfRejected();
+        if (!csrfTokenService.isValid(session, suppliedToken)) return csrfRejected();
+        if (!validAdminId(request.adminId())) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("message", "Admin credentials are incorrect"));
+        }
         var profile = accountService.authenticate(request);
         if (profile.isEmpty() || profile.get().role() != AccountRole.ADMIN) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
-                    .body(Map.of("message", "Admin email or password is incorrect"));
+                    .body(Map.of("message", "Admin credentials are incorrect"));
         }
         servletRequest.changeSessionId();
         session.setAttribute(CustomerSession.ACCOUNT_ID_ATTRIBUTE, profile.get().id());
@@ -124,27 +133,17 @@ public class AuthController {
             @RequestHeader(value = "X-CSRF-Token", required = false) String suppliedToken,
             HttpServletRequest request) {
         HttpSession session = request.getSession(false);
-        if (session == null || !validCsrfToken(session, suppliedToken)) return csrfRejected();
+        if (session == null || !csrfTokenService.isValid(session, suppliedToken)) return csrfRejected();
         session.invalidate();
         return ResponseEntity.ok(Map.of("loggedOut", true));
     }
 
-    private static String createCsrfToken(HttpSession session) {
-        Object existing = session.getAttribute(CSRF_TOKEN);
-        if (existing instanceof String token) return token;
-        byte[] bytes = new byte[32];
-        SECURE_RANDOM.nextBytes(bytes);
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        session.setAttribute(CSRF_TOKEN, token);
-        return token;
-    }
-
-    private static boolean validCsrfToken(HttpSession session, String suppliedToken) {
-        Object expectedToken = session.getAttribute(CSRF_TOKEN);
-        return expectedToken instanceof String expected && suppliedToken != null &&
-                MessageDigest.isEqual(
-                        expected.getBytes(StandardCharsets.UTF_8),
-                        suppliedToken.getBytes(StandardCharsets.UTF_8));
+    private boolean validAdminId(String suppliedAdminId) {
+        return !adminId.isBlank()
+                && suppliedAdminId != null
+                && MessageDigest.isEqual(
+                        adminId.getBytes(StandardCharsets.UTF_8),
+                        suppliedAdminId.getBytes(StandardCharsets.UTF_8));
     }
 
     private static ResponseEntity<Map<String, String>> csrfRejected() {

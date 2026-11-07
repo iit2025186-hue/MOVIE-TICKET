@@ -18,6 +18,7 @@
     catalogSearchSequence: 0,
     catalogSearchTimer: null,
     viewSequence: 0,
+    adminReportRequest: 0,
     spotlightMovies: [],
     spotlightIndex: 0,
     spotlightLabel: "FEATURED",
@@ -1856,9 +1857,12 @@
           <input id="auth-email" name="email" type="email" autocomplete="email" maxlength="254" required placeholder="you@example.com">
           <label for="auth-password">Password</label>
           <input id="auth-password" name="password" type="password" autocomplete="${signup ? "new-password" : "current-password"}" ${signup ? 'minlength="10" maxlength="72"' : 'maxlength="72"'} required placeholder="${signup ? "At least 10 characters" : "Your password"}">
+          ${!signup ? `<label for="auth-admin-id">Admin ID <span>(optional)</span></label>
+          <input id="auth-admin-id" name="adminId" type="password" autocomplete="off" maxlength="128" placeholder="Enter this only if you are an admin">
+          <p class="auth-password-hint">Leave blank for customer login. Admins must enter their configured Admin ID.</p>` : ""}
           ${signup ? `<p class="auth-password-hint">Use at least 10 characters. Passwords are securely hashed before storage.</p>` : ""}
           <p class="auth-feedback" data-auth-feedback role="alert" hidden></p>
-          <button class="button button-primary auth-submit" type="submit">${signup ? "Create account" : "Log in"} ${icons.arrow}</button>
+          <button class="button button-primary auth-submit" type="submit">${signup ? "Create account" : adminLogin ? "Admin log in" : "Log in"} ${icons.arrow}</button>
         </form>
         <p class="auth-switch">${adminLogin ? "Customer account?" : signup ? "Already have an account?" : "New to CineVerse?"} <a href="#/${adminLogin ? "login" : signup ? "login" : "signup"}${next ? `?next=${encodeURIComponent(next)}` : ""}">${adminLogin ? "Customer login" : signup ? "Log in" : "Create an account"}</a></p>
         <p class="auth-privacy">${adminLogin ? "Administrator access is verified by the server." : "Demo account only. No payment details are collected."}</p>
@@ -1944,6 +1948,25 @@
     }).join("")}</div></section>`;
   }
 
+  function adminShowPricingMarkup(shows) {
+    const rows = shows.length ? shows.map((show) => `<tr>
+      <td><strong>${escapeHtml(show.movieTitle)}</strong><small>${escapeHtml(show.status)}</small></td>
+      <td>${escapeHtml(show.city)}<small>${escapeHtml(show.cinemaName)} · ${escapeHtml(show.screenName)}</small></td>
+      <td>${escapeHtml(formatShowDate(show.startTime))}<small>${escapeHtml(formatTime(show.startTime))}</small></td>
+      <td><form class="admin-price-form" data-admin-price-form="${escapeHtml(show.id)}">
+        <label class="visually-hidden" for="admin-price-${escapeHtml(show.id)}">Price per ticket for ${escapeHtml(show.movieTitle)}</label>
+        <input class="admin-price-input" id="admin-price-${escapeHtml(show.id)}" name="ticketPrice" type="number" min="0.01" max="999999.99" step="0.01" required value="${escapeHtml(Number(show.ticketPrice).toFixed(2))}">
+        <button class="button button-secondary" type="submit">Save price</button>
+        <span class="admin-price-feedback" data-admin-price-feedback role="status"></span>
+      </form></td>
+    </tr>`).join("") : `<tr><td class="admin-empty-row" colspan="4">No screenings are configured yet.</td></tr>`;
+    return `<section class="admin-booking-report admin-pricing-report" aria-labelledby="admin-pricing-title">
+      <div class="admin-booking-heading"><div><span class="eyebrow">Ticket prices</span><h2 id="admin-pricing-title">Manage screening prices</h2></div></div>
+      <p class="admin-data-note">Price is per seat for this screening and applies to new bookings after the change.</p>
+      <div class="admin-table-scroll"><table class="admin-booking-table"><thead><tr><th>Movie</th><th>Cinema / screen</th><th>Showtime</th><th>Price per ticket (INR)</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </section>`;
+  }
+
   async function renderAdminDashboard(viewId, from = "", to = "") {
     if (!state.authReady) {
       app.innerHTML = `<section class="admin-page page-wrap">${statePanel("Checking admin access", "Verifying your CineVerse account.", "")}</section>`;
@@ -1957,22 +1980,63 @@
       app.innerHTML = `<section class="admin-page page-wrap">${statePanel("Admin access required", "Sign in with the separate CineVerse admin account to view reports.", "")}<a class="button button-secondary" href="#/admin/login">Go to admin login</a></section>`;
       return;
     }
+    const reportRequest = ++state.adminReportRequest;
     app.innerHTML = `<section class="admin-page page-wrap" aria-labelledby="admin-title">
       <span class="eyebrow">CineVerse management</span>
       <h1 class="page-title" id="admin-title">Admin dashboard.</h1>
-      <p class="admin-intro">Review the local catalog, screenings, customer bookings and demo revenue. Revenue totals include confirmed demo reservations only.</p>
-      <form class="admin-report-filters" id="admin-report-filters">
-        <label>Show date from<input type="date" name="from" value="${escapeHtml(from)}"></label>
-        <label>Show date to<input type="date" name="to" value="${escapeHtml(to)}"></label>
-        <button class="button button-primary" type="submit">Apply dates</button>
-        <button class="button button-secondary" type="button" data-admin-clear>Clear dates</button>
-      </form>
-      <div id="admin-dashboard-results" class="admin-dashboard-results">${statePanel("Loading dashboard", "Retrieving booking and catalog summaries.", "")}</div>
+      <p class="admin-intro">View booking reports or manage screening prices. Reports and revenue use confirmed demo reservations only.</p>
+      <div class="admin-subsection-tabs" role="tablist" aria-label="Admin dashboard sections">
+        <button class="admin-subsection-tab" id="admin-reports-tab" type="button" role="tab" aria-selected="true" aria-controls="admin-reports-panel" data-admin-tab="reports">View reports</button>
+        <button class="admin-subsection-tab" id="admin-pricing-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-pricing-panel" data-admin-tab="pricing">Change prices</button>
+      </div>
+      <section id="admin-reports-panel" class="admin-subsection-panel" role="tabpanel" aria-labelledby="admin-reports-tab">
+        <form class="admin-report-filters" id="admin-report-filters">
+          <div class="admin-filter-date-fields">
+            <label>Show date from<input type="date" name="from" value="${escapeHtml(from)}"></label>
+            <label>Show date to<input type="date" name="to" value="${escapeHtml(to)}"></label>
+          </div>
+          <div class="admin-filter-actions">
+            <button class="button button-primary" type="submit">Apply dates</button>
+            <button class="button button-secondary" type="button" data-admin-clear>Clear dates</button>
+          </div>
+          <p class="admin-filter-error" data-admin-filter-error role="alert" hidden></p>
+          <p class="admin-filter-note">Choose either date or both. The selected dates include the full show days.</p>
+        </form>
+        <div id="admin-dashboard-results" class="admin-dashboard-results">${statePanel("Loading reports", "Retrieving booking and catalog summaries.", "")}</div>
+      </section>
+      <section id="admin-pricing-panel" class="admin-subsection-panel" role="tabpanel" aria-labelledby="admin-pricing-tab" hidden>
+        <div id="admin-pricing-results" class="admin-dashboard-results">${statePanel("Loading prices", "Retrieving screening prices.", "")}</div>
+      </section>
     </section>`;
     const results = document.getElementById("admin-dashboard-results");
+    const pricingResults = document.getElementById("admin-pricing-results");
+    app.querySelectorAll("[data-admin-tab]").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const selected = tab.dataset.adminTab;
+        app.querySelectorAll("[data-admin-tab]").forEach((candidate) => {
+          candidate.setAttribute("aria-selected", String(candidate === tab));
+        });
+        document.getElementById("admin-reports-panel").hidden = selected !== "reports";
+        document.getElementById("admin-pricing-panel").hidden = selected !== "pricing";
+      });
+    });
+    app.querySelector(".admin-subsection-tabs").addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      const tabs = [...app.querySelectorAll("[data-admin-tab]")];
+      const currentIndex = tabs.indexOf(document.activeElement);
+      const nextIndex = event.key === "Home" ? 0
+        : event.key === "End" ? tabs.length - 1
+          : (currentIndex + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+      tabs[nextIndex].focus();
+      tabs[nextIndex].click();
+    });
     try {
-      const data = await api.getAdminDashboard(from, to);
-      if (viewId !== state.viewSequence) return;
+      const [data, shows] = await Promise.all([
+        api.getAdminDashboard(from, to),
+        api.getAdminShows()
+      ]);
+      if (viewId !== state.viewSequence || reportRequest !== state.adminReportRequest) return;
       const bookings = Array.isArray(data.bookings) ? data.bookings : [];
       const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "INR" });
       const bookingRows = bookings.length ? bookings.map((booking) => {
@@ -2003,8 +2067,8 @@
         <article class="admin-summary-card admin-revenue-card"><span>Demo revenue in range</span><strong>${escapeHtml(money.format(Number(data.totalRevenue)))}</strong><small>Confirmed bookings only</small></article>
       </div>
       <div class="admin-breakdown-grid">
-        ${adminBreakdownMarkup("Bookings by movie", data.bookingsByMovie)}
-        ${adminBreakdownMarkup("Most-booked movies · seats", data.mostBookedMovies)}
+        ${adminBreakdownMarkup("Bookings by movie · all statuses", data.bookingsByMovie)}
+        ${adminBreakdownMarkup("Tickets booked by movie · confirmed", data.mostBookedMovies)}
         ${adminBreakdownMarkup("Bookings by city", data.bookingsByCity)}
         ${adminBreakdownMarkup("Show/date bookings", data.bookingsByShow)}
         ${adminBreakdownMarkup("Payment methods", data.bookingsByPaymentMethod)}
@@ -2018,14 +2082,43 @@
         <div class="admin-table-scroll"><table class="admin-booking-table"><thead><tr><th>ID</th><th>Movie</th><th>City</th><th>Showtime</th><th>Seats</th><th>Amount</th><th>Payment</th><th>Cancellation / refund</th></tr></thead><tbody>${bookingRows}</tbody></table></div>
         <p class="admin-data-note">Demo data is held in the running in-memory H2 database and resets when the app restarts. No real payments are processed.</p>
       </section>`;
+      pricingResults.innerHTML = adminShowPricingMarkup(Array.isArray(shows) ? shows : []);
       const form = document.getElementById("admin-report-filters");
       form.addEventListener("submit", (event) => {
         event.preventDefault();
-        const values = new FormData(form);
-        renderAdminDashboard(viewId, String(values.get("from") || ""), String(values.get("to") || ""));
+        const startDate = form.elements.from.value;
+        const endDate = form.elements.to.value;
+        const filterError = form.querySelector("[data-admin-filter-error]");
+        if (startDate && endDate && startDate > endDate) {
+          filterError.textContent = "The start date must be on or before the end date.";
+          filterError.hidden = false;
+          return;
+        }
+        filterError.hidden = true;
+        renderAdminDashboard(viewId, startDate, endDate);
       });
       form.querySelector("[data-admin-clear]").addEventListener("click", () => {
         renderAdminDashboard(viewId);
+      });
+      pricingResults.querySelectorAll("[data-admin-price-form]").forEach((priceForm) => {
+        priceForm.addEventListener("submit", async (event) => {
+          event.preventDefault();
+          if (!priceForm.reportValidity()) return;
+          const button = priceForm.querySelector('[type="submit"]');
+          const feedback = priceForm.querySelector("[data-admin-price-feedback]");
+          const ticketPrice = Number(new FormData(priceForm).get("ticketPrice"));
+          button.disabled = true;
+          feedback.textContent = "Saving…";
+          try {
+            const updatedShow = await api.updateAdminShowPrice(priceForm.dataset.adminPriceForm, ticketPrice);
+            priceForm.elements.ticketPrice.value = Number(updatedShow.ticketPrice).toFixed(2);
+            feedback.textContent = "Price updated.";
+          } catch (error) {
+            feedback.textContent = `Price wasn't updated: ${error.message}`;
+          } finally {
+            button.disabled = false;
+          }
+        });
       });
       const searchInput = document.getElementById("admin-booking-search");
       const statusSelect = document.getElementById("admin-booking-status");
@@ -2050,7 +2143,7 @@
         URL.revokeObjectURL(url);
       });
     } catch (error) {
-      if (viewId !== state.viewSequence) return;
+      if (viewId !== state.viewSequence || reportRequest !== state.adminReportRequest) return;
       results.innerHTML = statePanel(
         error.status === 403 ? "Admin access required" : "Dashboard unavailable",
         error.message,
@@ -2645,17 +2738,19 @@
       password: String(formData.get("password") || "")
     };
     if (signup) details.displayName = String(formData.get("displayName") || "").trim();
+    if (!signup) details.adminId = String(formData.get("adminId") || "");
+    const adminMode = adminLogin || Boolean(details.adminId);
     button.disabled = true;
-    button.textContent = signup ? "Creating your account…" : adminLogin ? "Verifying admin…" : "Signing in…";
+    button.textContent = signup ? "Creating your account…" : adminMode ? "Verifying admin…" : "Signing in…";
     if (feedback) feedback.hidden = true;
-    const submit = signup ? api.registerAccount(details) : adminLogin ? api.loginAdmin(details) : api.loginAccount(details);
+    const submit = signup ? api.registerAccount(details) : adminMode ? api.loginAdmin(details) : api.loginAccount(details);
     submit.then((profile) => {
       state.authUser = profile;
       state.authReady = true;
       state.authError = "";
       renderAuthNavigation();
       const nextRoute = safeBookingReturnRoute(parseRoute().next);
-      location.hash = adminLogin ? "#/admin" : nextRoute || "#/profile";
+      location.hash = adminMode ? "#/admin" : nextRoute || "#/profile";
     }).catch((error) => {
       if (feedback) {
         const firstFieldError = Object.values(error.fieldErrors || {})[0];
@@ -2663,7 +2758,7 @@
         feedback.hidden = false;
       }
       button.disabled = false;
-      button.innerHTML = `${signup ? "Create account" : adminLogin ? "Admin log in" : "Log in"} ${icons.arrow}`;
+      button.innerHTML = `${signup ? "Create account" : adminMode ? "Admin log in" : "Log in"} ${icons.arrow}`;
     });
   });
 

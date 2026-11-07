@@ -185,6 +185,7 @@ public class TmdbDiscoveryService {
             String parameter,
             String value) {
         Map<String, String> parameters = new LinkedHashMap<>(baseParameters);
+        parameters.remove("region");
         parameters.put("sort_by", "popularity.desc");
         parameters.put(parameter, value);
         return new CategoryRequest("/discover/movie", parameters);

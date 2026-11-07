@@ -94,6 +94,12 @@
       const query = params.toString();
       return request(`/api/admin/dashboard${query ? `?${query}` : ""}`);
     },
+    getAdminShows() {
+      return request("/api/admin/shows");
+    },
+    updateAdminShowPrice(showId, ticketPrice) {
+      return authRequest(`/api/admin/shows/${encodeURIComponent(showId)}/price`, "PATCH", { ticketPrice });
+    },
     logoutAccount() {
       return authRequest("/api/auth/logout", "POST");
     },

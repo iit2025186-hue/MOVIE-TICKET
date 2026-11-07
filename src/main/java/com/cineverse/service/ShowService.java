@@ -1,5 +1,6 @@
 package com.cineverse.service;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 import org.springframework.stereotype.Service;
@@ -52,6 +53,14 @@ public class ShowService {
     @Transactional(readOnly = true)
     public ShowDto getShowById(Long id) {
         return toDto(findShow(id));
+    }
+
+    @Transactional
+    public ShowDto updateTicketPrice(Long id, BigDecimal ticketPrice) {
+        Show show = showRepository.findByIdForUpdate(id)
+                .orElseThrow(() -> new ShowNotFoundException(id));
+        show.setTicketPrice(ticketPrice);
+        return toDto(showRepository.save(show));
     }
 
     @Transactional

@@ -190,12 +190,18 @@ Bookings made while signed in are associated with that customer. The personal **
 
 ### Admin dashboard
 
-The seeded demo administrator is separate from customer accounts and has the `ADMIN` role:
+To create the admin account, configure its email and password along with the required Admin ID in PowerShell before starting CineVerse:
 
-- Email: `admin@cineverse.local`
-- Password: `AdminNight2026!` (override with `CINEVERSE_DEMO_ADMIN_PASSWORD` before startup)
+```powershell
+$env:CINEVERSE_ADMIN_EMAIL = "admin@example.com"
+$env:CINEVERSE_ADMIN_PASSWORD = "choose-a-private-password"
+$env:CINEVERSE_ADMIN_ID = "choose-a-private-admin-code"
+mvn spring-boot:run
+```
 
-Admin passwords are BCrypt-hashed. Only an account with the server-side `ADMIN` role can access `GET /api/admin/dashboard`; being signed in as a customer returns `403`, and an unauthenticated request returns `401`. The dashboard summarizes movies, cinemas, shows and customer accounts, and lists bookings with show-date filters and demo revenue totals. Revenue includes confirmed demo bookings only. CSV export is generated from the authorized, filtered report. This is a classroom demo, not a production admin system.
+The app creates the configured account with the `ADMIN` role; the password is BCrypt-hashed. Enter its email, password, and Admin ID on either login form. Leave Admin ID blank for customer sign-in. Only an account with the server-side `ADMIN` role can access the dashboard and price-management API; customers are denied. The dashboard summarizes bookings and confirmed tickets by movie, with show-date filters and demo revenue totals, and lets admins update the per-seat ticket price for each screening. Price updates affect new bookings for that show; existing bookings keep their recorded totals. Keep these values private and do not commit them to source control. This is a classroom demo, not a production admin system.
+
+The PowerShell `$env:` values last only in the current terminal. To configure them once for your Windows user, open **Edit environment variables for your account** from the Start menu and add user variables named `CINEVERSE_ADMIN_EMAIL`, `CINEVERSE_ADMIN_PASSWORD`, and `CINEVERSE_ADMIN_ID`. Close and reopen PowerShell (and VS Code, if it was already open) so it receives the updated environment, then run `mvn spring-boot:run` from the project directory. Anyone with access to your Windows account can use these saved credentials; do not use this method on a shared account.
 
 Bookings support up to 10 seats per request. Seat labels must belong to the show's screen, duplicates are rejected, and a seat already reserved for that same show returns `409 Conflict`. The total is calculated from the show's listed ticket price. A booking is confirmed as a demo reservation; no payment is processed.
 
