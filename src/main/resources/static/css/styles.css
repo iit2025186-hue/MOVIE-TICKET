@@ -89,6 +89,7 @@ img { display: block; max-width: 100%; }
   font-weight: 600;
   transition: color .2s ease;
 }
+.nav-link[hidden] { display: none; }
 .nav-link::after {
   position: absolute;
   right: 16px;
@@ -789,12 +790,13 @@ main { min-height: calc(100dvh - 76px); }
 .admin-subsection-tab:hover { color: #fff; }
 .admin-subsection-tab[aria-selected="true"] { background: var(--accent); color: #fff; }
 .admin-subsection-panel { margin-top: 18px; }
-.admin-report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 25px; padding: 17px; border: 1px solid var(--line); border-radius: 12px; background: rgba(24,23,24,.55); }
-.admin-filter-date-fields, .admin-filter-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
-.admin-report-filters label { display: grid; gap: 7px; min-width: 165px; color: #a9a2a0; font-size: 10px; }
-.admin-report-filters input { min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #171617; color: #f5f1ef; font: inherit; color-scheme: dark; }
+.admin-report-filters { display: grid; gap: 12px; margin-top: 25px; padding: 17px; border: 1px solid var(--line); border-radius: 12px; background: rgba(24,23,24,.55); }
+.admin-filter-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 10px; }
+.admin-filter-actions { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; }
+.admin-report-filters label { display: grid; gap: 7px; min-width: 0; color: #a9a2a0; font-size: 10px; }
+.admin-report-filters input, .admin-report-filters select { width: 100%; min-height: 39px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; background: #171617; color: #f5f1ef; font: inherit; color-scheme: dark; }
 .admin-report-filters .button { min-height: 39px; font-size: 10px; }
-.admin-filter-note, .admin-filter-error { flex-basis: 100%; margin: 0; color: #88817f; font-size: 9px; line-height: 1.5; }
+.admin-filter-note, .admin-filter-error { margin: 0; color: #88817f; font-size: 9px; line-height: 1.5; }
 .admin-filter-error { color: #ff8589; }
 .admin-dashboard-results { margin-top: 20px; }
 .admin-summary-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 13px; }
@@ -824,15 +826,30 @@ main { min-height: calc(100dvh - 76px); }
 .admin-table-scroll { overflow-x: auto; margin-top: 16px; }
 .admin-booking-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 10px; }
 .admin-booking-table th { padding: 10px 9px; border-bottom: 1px solid var(--line); color: #8e8785; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.admin-sort-button { padding: 0; border: 0; background: transparent; color: inherit; font: inherit; font-weight: inherit; cursor: pointer; }
+.admin-sort-button::after { color: #777170; content: " ↕"; }
+.admin-booking-table th[aria-sort="ascending"] .admin-sort-button::after { color: var(--accent); content: " ↑"; }
+.admin-booking-table th[aria-sort="descending"] .admin-sort-button::after { color: var(--accent); content: " ↓"; }
+.admin-sort-button:hover { color: var(--ink); }
 .admin-booking-table td { padding: 12px 9px; border-bottom: 1px solid rgba(255,255,255,.055); color: #d9d2cf; vertical-align: top; }
 .admin-booking-table td small { display: block; margin-top: 4px; color: #8e8785; font-size: 9px; }
 .admin-booking-table td strong { color: #f4efec; }
+.admin-status-badge { display: inline-flex; padding: 5px 8px; border: 1px solid rgba(155,164,173,.25); border-radius: 999px; background: rgba(155,164,173,.08); color: #c0c6cc; font-size: 9px; font-weight: 700; white-space: nowrap; }
+.admin-status-badge.is-confirmed { border-color: rgba(127,200,156,.3); background: rgba(127,200,156,.1); color: #9bd1ad; }
+.admin-status-badge.is-cancelled { border-color: rgba(237,113,118,.3); background: rgba(237,59,66,.09); color: #f18b8e; }
 .admin-empty-row { padding: 28px !important; color: #938b88 !important; text-align: center; }
 .admin-data-note { margin: 14px 0 0; color: #777170; font-size: 9px; line-height: 1.6; }
-.admin-price-form { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 230px; }
+.admin-price-form { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; min-width: 250px; }
 .admin-price-input { width: 110px; min-height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: #171617; color: #f5f1ef; font: inherit; color-scheme: dark; }
 .admin-price-form .button { min-height: 36px; padding: 0 10px; font-size: 9px; }
-.admin-price-feedback { flex-basis: 100%; color: #aaa3a1; font-size: 9px; }
+.admin-price-warning, .admin-price-feedback { flex-basis: 100%; font-size: 9px; }
+.admin-price-warning { color: #e9bb75; }
+.admin-price-feedback { color: #aaa3a1; }
+.admin-bulk-price-form { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-top: 16px; padding: 13px; border: 1px solid var(--line); border-radius: 9px; background: rgba(0,0,0,.1); }
+.admin-bulk-price-form label { display: grid; gap: 6px; min-width: 145px; color: #a9a2a0; font-size: 9px; }
+.admin-bulk-price-form input, .admin-bulk-price-form select { min-height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: #171617; color: #f5f1ef; font: inherit; color-scheme: dark; }
+.admin-bulk-price-form .button { min-height: 36px; font-size: 9px; }
+.admin-bulk-price-feedback { flex-basis: 100%; color: #aaa3a1; font-size: 9px; line-height: 1.5; }
 .bookings-page { min-height: calc(100dvh - 76px); padding: 77px 0 100px; }
 .customer-bookings-page > .eyebrow { display: flex; }
 .bookings-intro { max-width: 540px; margin: 14px 0 0; color: #aaa3a1; font-size: 13px; line-height: 1.75; }
@@ -1171,9 +1188,8 @@ main { min-height: calc(100dvh - 76px); }
   .admin-summary-card { padding: 14px; }
   .admin-summary-card strong { font-size: 21px; }
   .admin-breakdown-grid { grid-template-columns: 1fr; }
-  .admin-report-filters { align-items: stretch; }
-  .admin-report-filters label { flex: 1 1 calc(50% - 8px); }
-  .admin-report-filters input { width: 100%; }
+  .admin-filter-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .admin-filter-actions .button { flex: 1; }
   .admin-booking-report { padding: 14px; }
   .profile-avatar { width: 51px; height: 51px; font-size: 21px; }
   .profile-details { flex-basis: calc(100% - 70px); }
@@ -1254,6 +1270,9 @@ main { min-height: calc(100dvh - 76px); }
 :root[data-theme="light"] .genre-select,
 :root[data-theme="light"] .cinema-select,
 :root[data-theme="light"] .admin-report-filters input,
+:root[data-theme="light"] .admin-report-filters select,
+:root[data-theme="light"] .admin-bulk-price-form input,
+:root[data-theme="light"] .admin-bulk-price-form select,
 :root[data-theme="light"] .admin-table-filters input,
 :root[data-theme="light"] .admin-table-filters select,
 :root[data-theme="light"] .booking-report-controls input,
@@ -1443,6 +1462,7 @@ main { min-height: calc(100dvh - 76px); }
 :root[data-theme="light"] .admin-table-filters input,
 :root[data-theme="light"] .admin-table-filters select,
 :root[data-theme="light"] .admin-price-input,
+:root[data-theme="light"] .admin-bulk-price-form,
 :root[data-theme="light"] .checkout-method-panel select,
 :root[data-theme="light"] .demo-payment-details input,
 :root[data-theme="light"] .demo-payment-details select,

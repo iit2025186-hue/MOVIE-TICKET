@@ -187,6 +187,9 @@ class AdminControllerTest {
                 .andExpect(jsonPath("$.totalBookings").value(1))
                 .andExpect(jsonPath("$.totalRevenue").value(selectedShow.path("ticketPrice").decimalValue().doubleValue()))
                 .andExpect(jsonPath("$.bookings.length()").value(1))
+                .andExpect(jsonPath("$.bookings[0].showId").value(showId))
+                .andExpect(jsonPath("$.bookings[0].movieId").value(selectedShow.path("movieId").asLong()))
+                .andExpect(jsonPath("$.bookings[0].cinemaId").value(selectedShow.path("cinemaId").asLong()))
                 .andExpect(jsonPath("$.bookings[0].customerEmail").value("admin@test.local"));
 
         mockMvc.perform(get("/api/admin/dashboard")

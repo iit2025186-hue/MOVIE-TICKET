@@ -19,6 +19,10 @@
     catalogSearchTimer: null,
     viewSequence: 0,
     adminReportRequest: 0,
+    adminFilters: { from: "", to: "", city: "", cinemaId: "", movieId: "" },
+    adminShows: [],
+    adminActiveTab: "reports",
+    adminSort: { key: "", direction: "desc" },
     spotlightMovies: [],
     spotlightIndex: 0,
     spotlightLabel: "FEATURED",
@@ -288,6 +292,8 @@
   function renderAuthNavigation() {
     const target = document.getElementById("auth-nav");
     if (!target) return;
+    const adminDashboardLink = document.getElementById("admin-dashboard-link");
+    if (adminDashboardLink) adminDashboardLink.hidden = state.authUser?.role !== "ADMIN";
     if (state.authUser) {
       target.innerHTML = `<a class="auth-nav-profile" href="#/profile">${escapeHtml(state.authUser.displayName)}</a><button class="auth-nav-logout" type="button" data-logout>Log out</button>`;
     } else {
@@ -1087,7 +1093,7 @@
       });
     const localMarkup = visible.length
       ? `<div class="movie-grid">${visible.map(movieCard).join("")}</div>`
-      : emptyPanel("No matching local movies", "Try a different title, genre, or language. Online results may still be available below.");
+      : emptyPanel("No matching local movies", "Try a different title, genre, or language. Online matches appear below when available.");
     const remoteMovies = state.catalogRemoteMovies
       .filter((movie) => !query || String(movie.title || "").toLocaleLowerCase().includes(query))
       .filter(matchesFilters)
@@ -1097,22 +1103,25 @@
         const order = String(left.title || "").localeCompare(String(right.title || ""), undefined, { sensitivity: "base" });
         return state.catalogSort === "desc" ? -order : order;
       });
-    const onlineMarkup = query
+    const onlineMarkup = state.discoveryStatus?.liveAvailable
+      || state.catalogRemoteLoading
+      || state.catalogRemoteMessage
+      || remoteMovies.length
       ? `<section class="online-search-results" aria-label="Online movie search results">
-          <div class="section-heading"><div><span class="eyebrow">TMDB discovery</span><h2>Online results</h2></div><span class="result-count">${remoteMovies.length} ${remoteMovies.length === 1 ? "film" : "films"}</span></div>
+          <div class="section-heading"><div><span class="eyebrow">TMDB discovery</span><h2>Online movies</h2></div><span class="result-count">${remoteMovies.length} ${remoteMovies.length === 1 ? "film" : "films"}</span></div>
           ${state.catalogRemoteLoading
-            ? `<p class="online-search-loading" role="status">Searching TMDB for “${escapeHtml(state.catalogQuery.trim())}”…</p>`
+            ? `<p class="online-search-loading" role="status">${query
+              ? `Searching TMDB for “${escapeHtml(state.catalogQuery.trim())}”…`
+              : "Loading popular movies from TMDB…"}</p>`
             : state.catalogRemoteMessage
             ? `<p class="online-fallback" role="status">${escapeHtml(state.catalogRemoteMessage)} ${visible.length ? "Matching local results are shown above." : "The local catalog above remains available; try another title or check back later."}</p>`
             : remoteMovies.length
               ? `<div class="movie-grid discovery-grid">${remoteMovies.map(discoveryCard).join("")}</div>`
-              : emptyPanel("No online matches", "Try another title or adjust the genre and language filters.")}
+              : emptyPanel(query ? "No online matches" : "No online movies match these filters", "Try another title or adjust the genre and language filters.")}
         </section>`
       : "";
-    count.textContent = query && state.catalogRemoteLoading
-      ? `${visible.length} local · searching online…`
-      : query
-      ? `${visible.length} local · ${remoteMovies.length} online`
+    count.textContent = state.discoveryStatus?.liveAvailable || state.catalogRemoteLoading
+      ? `${visible.length} local · ${state.catalogRemoteLoading ? "loading online…" : `${remoteMovies.length} online`}`
       : `${visible.length} ${visible.length === 1 ? "film" : "films"}`;
     results.innerHTML = `<section aria-label="Local cinema catalog"><div class="section-heading"><div><span class="eyebrow">Configured in CineVerse</span><h2>Local movies</h2></div></div>${localMarkup}</section>${onlineMarkup}`;
     bindPosterFallbacks(results);
@@ -1138,14 +1147,9 @@
 
   async function searchOnlineCatalog(query, viewId) {
     const searchSequence = ++state.catalogSearchSequence;
+    const normalizedQuery = query.trim();
     state.catalogRemoteMovies = [];
     state.catalogRemoteMessage = "";
-    state.catalogRemoteLoading = false;
-    if (!query.trim()) {
-      updateCatalogFilterOptions();
-      renderCatalogResults(state.catalogMovies);
-      return;
-    }
     state.catalogRemoteLoading = true;
     renderCatalogResults(state.catalogMovies);
     try {
@@ -1154,10 +1158,9 @@
       if (!status.liveAvailable) {
         state.catalogRemoteMessage = `Online search is unavailable. ${status.message || "TMDB is not configured."}`;
       } else {
-        const response = await api.getDiscoveryMovies("all", 1, query.trim());
+        const response = await api.getDiscoveryMovies("all", 1, normalizedQuery);
         if (viewId !== state.viewSequence || searchSequence !== state.catalogSearchSequence) return;
         state.catalogRemoteMovies = Array.isArray(response.results) ? response.results : [];
-        if (!state.catalogRemoteMovies.length) state.catalogRemoteMessage = "";
       }
     } catch (error) {
       if (viewId !== state.viewSequence || searchSequence !== state.catalogSearchSequence) return;
@@ -1243,11 +1246,12 @@
       state.catalogSort = "asc";
       state.catalogRemoteMovies = [];
       state.catalogRemoteMessage = "";
-      state.catalogRemoteLoading = false;
+      state.catalogRemoteLoading = Boolean(state.discoveryStatus?.liveAvailable);
       state.catalogSearchSequence += 1;
       if (state.catalogSearchTimer) window.clearTimeout(state.catalogSearchTimer);
       updateCatalogFilterOptions();
       renderCatalogResults(state.catalogMovies);
+      if (state.discoveryStatus?.liveAvailable) searchOnlineCatalog("", viewId);
       input.focus();
     });
     return { input, genre, language, sort };
@@ -1256,20 +1260,27 @@
   async function renderCatalog(viewId) {
     const controls = renderCatalogShell(viewId);
     try {
-      const movies = await api.getMovies();
+      const [movies, discoveryStatus] = await Promise.all([
+        api.getMovies(),
+        state.discoveryStatus
+          ? Promise.resolve(state.discoveryStatus)
+          : api.getDiscoveryStatus().catch((error) => ({
+            liveAvailable: false,
+            message: `TMDB status is unavailable: ${error.message}`
+          }))
+      ]);
       if (viewId !== state.viewSequence) return;
       state.movies = Array.isArray(movies) ? movies : [];
       state.catalogMovies = state.movies;
+      state.discoveryStatus = discoveryStatus;
+      state.catalogRemoteLoading = Boolean(discoveryStatus.liveAvailable);
       updateCatalogFilterOptions();
-      renderCatalogResults(state.catalogMovies);
+      let initialSearch = "";
       if (location.hash.includes("?")) {
         const params = new URLSearchParams(location.hash.split("?")[1]);
-        const initialSearch = params.get("search") || "";
+        initialSearch = params.get("search") || "";
         controls.input.value = initialSearch;
         state.catalogQuery = initialSearch;
-        if (initialSearch) {
-          state.catalogSearchTimer = window.setTimeout(() => searchOnlineCatalog(initialSearch, viewId), 0);
-        }
         const initialGenre = params.get("genre") || "";
         if (initialGenre && state.catalogGenres.includes(initialGenre)) {
           controls.genre.value = initialGenre;
@@ -1285,7 +1296,10 @@
           controls.sort.value = "desc";
           state.catalogSort = "desc";
         }
-        renderCatalogResults(state.catalogMovies);
+      }
+      renderCatalogResults(state.catalogMovies);
+      if (discoveryStatus.liveAvailable || initialSearch) {
+        await searchOnlineCatalog(initialSearch, viewId);
       }
     } catch (error) {
       if (viewId !== state.viewSequence) return;
@@ -1948,26 +1962,289 @@
     }).join("")}</div></section>`;
   }
 
+  function adminShowMatchesFilters(show, filters) {
+    const showDate = String(show.startTime || "").slice(0, 10);
+    return (!filters.from || showDate >= filters.from)
+      && (!filters.to || showDate <= filters.to)
+      && (!filters.city || show.city === filters.city)
+      && (!filters.cinemaId || String(show.cinemaId) === String(filters.cinemaId))
+      && (!filters.movieId || String(show.movieId) === String(filters.movieId));
+  }
+
+  function adminBookingMatchesFilters(booking, filters) {
+    const showDate = String(booking.showStartTime || "").slice(0, 10);
+    return (!filters.from || showDate >= filters.from)
+      && (!filters.to || showDate <= filters.to)
+      && (!filters.city || booking.city === filters.city)
+      && (!filters.cinemaId || String(booking.cinemaId) === String(filters.cinemaId))
+      && (!filters.movieId || String(booking.movieId) === String(filters.movieId));
+  }
+
+  function updateAdminFilterOptions(form, shows, filters) {
+    const citySelect = form.elements.city;
+    const cinemaSelect = form.elements.cinemaId;
+    const movieSelect = form.elements.movieId;
+    const cities = [...new Set(shows.map((show) => show.city).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right));
+    const setOptions = (select, label, options, selected) => {
+      select.innerHTML = `<option value="">All ${label}</option>${options.map((option) =>
+        `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`
+      ).join("")}`;
+      const selectedValue = options.some((option) => String(option.value) === String(selected))
+        ? String(selected) : "";
+      select.value = selectedValue;
+      return selectedValue;
+    };
+
+    const normalized = { ...filters };
+    normalized.city = setOptions(citySelect, "cities", cities.map((city) => ({ value: city, label: city })), filters.city);
+    const cityShows = shows.filter((show) => !normalized.city || show.city === normalized.city);
+    const cinemasById = new Map(cityShows.map((show) => [String(show.cinemaId), {
+      value: String(show.cinemaId),
+      label: normalized.city ? show.cinemaName : `${show.cinemaName} · ${show.city}`
+    }]));
+    const cinemas = [...cinemasById.values()].sort((left, right) => left.label.localeCompare(right.label));
+    normalized.cinemaId = setOptions(cinemaSelect, "cinemas", cinemas, filters.cinemaId);
+    const movieShows = cityShows.filter((show) =>
+      !normalized.cinemaId || String(show.cinemaId) === normalized.cinemaId);
+    const moviesById = new Map(movieShows.map((show) => [String(show.movieId), {
+      value: String(show.movieId),
+      label: show.movieTitle
+    }]));
+    const movies = [...moviesById.values()].sort((left, right) => left.label.localeCompare(right.label));
+    normalized.movieId = setOptions(movieSelect, "movies", movies, filters.movieId);
+    return normalized;
+  }
+
+  function adminFilterValues(form) {
+    return {
+      from: form.elements.from.value,
+      to: form.elements.to.value,
+      city: form.elements.city.value,
+      cinemaId: form.elements.cinemaId.value,
+      movieId: form.elements.movieId.value
+    };
+  }
+
+  function adminCounts(items, keyFor, valueFor = () => 1) {
+    const result = Object.create(null);
+    items.forEach((item) => {
+      const key = keyFor(item) || "Unknown";
+      result[key] = (result[key] || 0) + valueFor(item);
+    });
+    return result;
+  }
+
+  function adminBookingRows(bookings, money, sort) {
+    const ordered = [...bookings];
+    if (sort.key) {
+      const compare = (left, right) => {
+        if (sort.key === "amount") return Number(left.totalPrice) - Number(right.totalPrice);
+        if (sort.key === "showtime") return new Date(left.showStartTime) - new Date(right.showStartTime);
+        if (sort.key === "seats") return (left.seatLabels || []).length - (right.seatLabels || []).length;
+        return 0;
+      };
+      ordered.sort((left, right) => {
+        const difference = compare(left, right) * (sort.direction === "asc" ? 1 : -1);
+        return difference || Number(right.id) - Number(left.id);
+      });
+    }
+
+    return ordered.length ? ordered.map((booking) => {
+      const searchText = [
+        booking.id, booking.bookingReference, booking.movieTitle, booking.city,
+        booking.cinemaName, booking.screenName, booking.showStartTime,
+        ...(booking.seatLabels || []), booking.paymentMethod, booking.paymentStatus,
+        booking.status, booking.aftercareType, booking.aftercareStatus
+      ].join(" ").toLowerCase();
+      const confirmed = booking.status === "CONFIRMED";
+      const cancelled = booking.status === "CANCELLED";
+      const statusLabel = confirmed ? "Confirmed" : cancelled ? "Cancelled" : booking.status;
+      const statusClass = confirmed ? "is-confirmed" : cancelled ? "is-cancelled" : "";
+      return `<tr data-admin-row data-status="${escapeHtml(booking.status)}" data-search="${escapeHtml(searchText)}">
+        <td>#${escapeHtml(booking.id)}</td>
+        <td><strong>${escapeHtml(booking.movieTitle)}</strong><small>${escapeHtml(booking.bookingReference)}</small></td>
+        <td>${escapeHtml(booking.city)}</td>
+        <td>${escapeHtml(formatShowDate(booking.showStartTime))}<small>${escapeHtml(formatTime(booking.showStartTime))} · ${escapeHtml(booking.cinemaName)} · ${escapeHtml(booking.screenName)}</small></td>
+        <td>${escapeHtml((booking.seatLabels || []).join(", "))}<small>${(booking.seatLabels || []).length} seats</small></td>
+        <td>${escapeHtml(money.format(Number(booking.totalPrice) || 0))}</td>
+        <td>${escapeHtml(booking.paymentMethod || "Unknown")}<small>${escapeHtml(booking.paymentStatus || "Unknown")}</small></td>
+        <td><span class="admin-status-badge ${statusClass}">${escapeHtml(statusLabel)}</span></td>
+        <td>${booking.aftercareType
+          ? `${escapeHtml(booking.aftercareType)}<small>${escapeHtml(booking.aftercareStatus || "PENDING")} (simulated)</small>`
+          : "No refund/exchange request"}</td>
+      </tr>`;
+    }).join("") : `<tr><td class="admin-empty-row" colspan="9">No reservations match the selected filters.</td></tr>`;
+  }
+
   function adminShowPricingMarkup(shows) {
+    const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "INR" });
     const rows = shows.length ? shows.map((show) => `<tr>
       <td><strong>${escapeHtml(show.movieTitle)}</strong><small>${escapeHtml(show.status)}</small></td>
       <td>${escapeHtml(show.city)}<small>${escapeHtml(show.cinemaName)} · ${escapeHtml(show.screenName)}</small></td>
       <td>${escapeHtml(formatShowDate(show.startTime))}<small>${escapeHtml(formatTime(show.startTime))}</small></td>
+      <td data-admin-current-price>${escapeHtml(money.format(Number(show.ticketPrice) || 0))}</td>
       <td><form class="admin-price-form" data-admin-price-form="${escapeHtml(show.id)}">
-        <label class="visually-hidden" for="admin-price-${escapeHtml(show.id)}">Price per ticket for ${escapeHtml(show.movieTitle)}</label>
+        <label class="visually-hidden" for="admin-price-${escapeHtml(show.id)}">New price per ticket for ${escapeHtml(show.movieTitle)}</label>
         <input class="admin-price-input" id="admin-price-${escapeHtml(show.id)}" name="ticketPrice" type="number" min="0.01" max="999999.99" step="0.01" required value="${escapeHtml(Number(show.ticketPrice).toFixed(2))}">
-        <button class="button button-secondary" type="submit">Save price</button>
+        <span class="admin-price-warning" data-price-warning role="status" hidden>⚠ Are you sure? This price is outside ₹50–₹2,000.</span>
+        <button class="button button-secondary" type="submit">Save</button>
         <span class="admin-price-feedback" data-admin-price-feedback role="status"></span>
       </form></td>
-    </tr>`).join("") : `<tr><td class="admin-empty-row" colspan="4">No screenings are configured yet.</td></tr>`;
+    </tr>`).join("") : `<tr><td class="admin-empty-row" colspan="5">No screenings match the selected filters.</td></tr>`;
     return `<section class="admin-booking-report admin-pricing-report" aria-labelledby="admin-pricing-title">
       <div class="admin-booking-heading"><div><span class="eyebrow">Ticket prices</span><h2 id="admin-pricing-title">Manage screening prices</h2></div></div>
       <p class="admin-data-note">Price is per seat for this screening and applies to new bookings after the change.</p>
-      <div class="admin-table-scroll"><table class="admin-booking-table"><thead><tr><th>Movie</th><th>Cinema / screen</th><th>Showtime</th><th>Price per ticket (INR)</th></tr></thead><tbody>${rows}</tbody></table></div>
+      <form class="admin-bulk-price-form" data-admin-bulk-price-form>
+        <label>Bulk action<select name="mode"><option value="set">Set price to</option><option value="increase">Increase by</option><option value="decrease">Decrease by</option></select></label>
+        <label>Amount (INR)<input name="amount" type="number" min="0.01" max="999999.99" step="0.01" required></label>
+        <button class="button button-secondary" type="submit" ${shows.length ? "" : "disabled"}>Apply to ${shows.length} matching shows</button>
+        <span class="admin-price-warning" data-bulk-price-warning role="status" hidden>⚠ Some resulting prices are outside ₹50–₹2,000.</span>
+        <span class="admin-bulk-price-feedback" data-admin-bulk-price-feedback role="status"></span>
+      </form>
+      <div class="admin-table-scroll"><table class="admin-booking-table"><thead><tr><th>Movie</th><th>Cinema / screen</th><th>Showtime</th><th>Current price</th><th>New price</th></tr></thead><tbody>${rows}</tbody></table></div>
     </section>`;
   }
 
-  async function renderAdminDashboard(viewId, from = "", to = "") {
+  function showAdminToast(title, message) {
+    const toast = document.createElement("div");
+    toast.className = "toast";
+    toast.setAttribute("role", "status");
+    toast.innerHTML = `<strong>${escapeHtml(title)}</strong><p>${escapeHtml(message)}</p>`;
+    document.body.append(toast);
+    window.setTimeout(() => toast.remove(), 2800);
+  }
+
+  function updateAdminPriceInState(updatedShow) {
+    state.adminShows = state.adminShows.map((show) =>
+      String(show.id) === String(updatedShow.id)
+        ? { ...show, ticketPrice: updatedShow.ticketPrice }
+        : show);
+  }
+
+  function updateAdminPriceRow(container, show) {
+    const priceForm = container.querySelector(`[data-admin-price-form="${show.id}"]`);
+    if (!priceForm) return;
+    const ticketPrice = Number(show.ticketPrice);
+    const currentPrice = priceForm.closest("tr").querySelector("[data-admin-current-price]");
+    const warning = priceForm.querySelector("[data-price-warning]");
+    priceForm.elements.ticketPrice.value = ticketPrice.toFixed(2);
+    if (currentPrice) {
+      currentPrice.textContent = new Intl.NumberFormat(undefined, { style: "currency", currency: "INR" })
+        .format(ticketPrice);
+    }
+    if (warning) warning.hidden = ticketPrice >= 50 && ticketPrice <= 2000;
+  }
+
+  function bindAdminPricingControls(container, shows) {
+    const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "INR" });
+    container.querySelectorAll("[data-admin-price-form]").forEach((priceForm) => {
+      const input = priceForm.elements.ticketPrice;
+      const warning = priceForm.querySelector("[data-price-warning]");
+      const feedback = priceForm.querySelector("[data-admin-price-feedback]");
+      const button = priceForm.querySelector('[type="submit"]');
+      const updateWarning = () => {
+        const price = Number(input.value);
+        warning.hidden = !input.value || (price >= 50 && price <= 2000);
+      };
+      input.addEventListener("input", updateWarning);
+      priceForm.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        if (!priceForm.reportValidity()) return;
+        const ticketPrice = Number(input.value);
+        if ((ticketPrice < 50 || ticketPrice > 2000)
+            && !window.confirm("This price is below ₹50 or above ₹2,000. Are you sure you want to save it?")) return;
+        button.disabled = true;
+        feedback.textContent = "Saving…";
+        try {
+          const updatedShow = await api.updateAdminShowPrice(priceForm.dataset.adminPriceForm, ticketPrice);
+          updateAdminPriceInState(updatedShow);
+          updateAdminPriceRow(container, updatedShow);
+          feedback.textContent = "Saved!";
+          showAdminToast("Saved!", "The ticket price was updated.");
+        } catch (error) {
+          feedback.textContent = `Price wasn't updated: ${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+      updateWarning();
+    });
+
+    const bulkForm = container.querySelector("[data-admin-bulk-price-form]");
+    if (!bulkForm) return;
+    const bulkButton = bulkForm.querySelector('[type="submit"]');
+    const bulkFeedback = bulkForm.querySelector("[data-admin-bulk-price-feedback]");
+    const bulkWarning = bulkForm.querySelector("[data-bulk-price-warning]");
+    const updateBulkWarning = () => {
+      const amount = Number(bulkForm.elements.amount.value);
+      if (!amount) {
+        bulkWarning.hidden = true;
+        return;
+      }
+      const mode = bulkForm.elements.mode.value;
+      const matchingShows = state.adminShows.filter((show) =>
+        adminShowMatchesFilters(show, state.adminFilters));
+      bulkWarning.hidden = !matchingShows.some((show) => {
+        const currentPrice = Number(show.ticketPrice);
+        const nextPrice = mode === "increase" ? currentPrice + amount
+          : mode === "decrease" ? currentPrice - amount : amount;
+        return nextPrice < 50 || nextPrice > 2000;
+      });
+    };
+    bulkForm.elements.amount.addEventListener("input", updateBulkWarning);
+    bulkForm.elements.mode.addEventListener("change", updateBulkWarning);
+    bulkForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!bulkForm.reportValidity()) return;
+      const matchingShows = state.adminShows.filter((show) =>
+        adminShowMatchesFilters(show, state.adminFilters));
+      if (!matchingShows.length) {
+        bulkFeedback.textContent = "There are no matching shows to update.";
+        return;
+      }
+      const formData = new FormData(bulkForm);
+      const amount = Number(formData.get("amount"));
+      const mode = String(formData.get("mode"));
+      const updates = matchingShows.map((show) => {
+        const currentPrice = Number(show.ticketPrice);
+        const nextPrice = mode === "increase" ? currentPrice + amount
+          : mode === "decrease" ? currentPrice - amount : amount;
+        return { show, ticketPrice: Math.round(nextPrice * 100) / 100 };
+      });
+      const invalid = updates.find((update) => update.ticketPrice < 0.01 || update.ticketPrice > 999999.99);
+      if (invalid) {
+        bulkFeedback.textContent = `The change would set ${invalid.show.movieTitle} to an invalid price. Adjust the amount and try again.`;
+        return;
+      }
+      const unusualCount = updates.filter((update) => update.ticketPrice < 50 || update.ticketPrice > 2000).length;
+      if (unusualCount && !window.confirm(
+        `${unusualCount} of ${updates.length} resulting prices will be below ₹50 or above ₹2,000. Are you sure?`)) return;
+
+      bulkButton.disabled = true;
+      const failures = [];
+      let updatedCount = 0;
+      for (const update of updates) {
+        bulkFeedback.textContent = `Saving ${updatedCount + failures.length + 1} of ${updates.length}…`;
+        try {
+          const updatedShow = await api.updateAdminShowPrice(update.show.id, update.ticketPrice);
+          updateAdminPriceInState(updatedShow);
+          updateAdminPriceRow(container, updatedShow);
+          updatedCount += 1;
+        } catch (error) {
+          failures.push(`${update.show.movieTitle}: ${error.message}`);
+        }
+      }
+      bulkButton.disabled = false;
+      bulkFeedback.textContent = failures.length
+        ? `${updatedCount} saved; ${failures.length} failed. ${failures.slice(0, 2).join(" ")}`
+        : `${updatedCount} prices saved.`;
+      if (updatedCount) showAdminToast("Bulk update saved", `${updatedCount} ticket prices were updated.`);
+      if (failures.length) showAdminToast("Some prices weren't saved", failures[0]);
+    });
+  }
+
+  async function renderAdminDashboard(viewId) {
     if (!state.authReady) {
       app.innerHTML = `<section class="admin-page page-wrap">${statePanel("Checking admin access", "Verifying your CineVerse account.", "")}</section>`;
       return;
@@ -1985,34 +2262,40 @@
       <span class="eyebrow">CineVerse management</span>
       <h1 class="page-title" id="admin-title">Admin dashboard.</h1>
       <p class="admin-intro">View booking reports or manage screening prices. Reports and revenue use confirmed demo reservations only.</p>
+      <form class="admin-report-filters" id="admin-report-filters">
+        <div class="admin-filter-grid">
+          <label>Show date from<input type="date" name="from" value="${escapeHtml(state.adminFilters.from)}"></label>
+          <label>Show date to<input type="date" name="to" value="${escapeHtml(state.adminFilters.to)}"></label>
+          <label>City<select name="city"><option value="">All cities</option></select></label>
+          <label>Cinema<select name="cinemaId"><option value="">All cinemas</option></select></label>
+          <label>Movie<select name="movieId"><option value="">All movies</option></select></label>
+        </div>
+        <div class="admin-filter-actions">
+          <button class="button button-primary" type="submit">Apply filters</button>
+          <button class="button button-secondary" type="button" data-admin-clear>Clear filters</button>
+        </div>
+        <p class="admin-filter-error" data-admin-filter-error role="alert" hidden></p>
+        <p class="admin-filter-note">Filters apply to both tabs. City narrows cinemas, and cinema narrows movies; dates include the full show days.</p>
+      </form>
       <div class="admin-subsection-tabs" role="tablist" aria-label="Admin dashboard sections">
-        <button class="admin-subsection-tab" id="admin-reports-tab" type="button" role="tab" aria-selected="true" aria-controls="admin-reports-panel" data-admin-tab="reports">View reports</button>
-        <button class="admin-subsection-tab" id="admin-pricing-tab" type="button" role="tab" aria-selected="false" aria-controls="admin-pricing-panel" data-admin-tab="pricing">Change prices</button>
+        <button class="admin-subsection-tab" id="admin-reports-tab" type="button" role="tab" aria-selected="${state.adminActiveTab === "reports"}" aria-controls="admin-reports-panel" data-admin-tab="reports">View reports</button>
+        <button class="admin-subsection-tab" id="admin-pricing-tab" type="button" role="tab" aria-selected="${state.adminActiveTab === "pricing"}" aria-controls="admin-pricing-panel" data-admin-tab="pricing">Change prices</button>
       </div>
-      <section id="admin-reports-panel" class="admin-subsection-panel" role="tabpanel" aria-labelledby="admin-reports-tab">
-        <form class="admin-report-filters" id="admin-report-filters">
-          <div class="admin-filter-date-fields">
-            <label>Show date from<input type="date" name="from" value="${escapeHtml(from)}"></label>
-            <label>Show date to<input type="date" name="to" value="${escapeHtml(to)}"></label>
-          </div>
-          <div class="admin-filter-actions">
-            <button class="button button-primary" type="submit">Apply dates</button>
-            <button class="button button-secondary" type="button" data-admin-clear>Clear dates</button>
-          </div>
-          <p class="admin-filter-error" data-admin-filter-error role="alert" hidden></p>
-          <p class="admin-filter-note">Choose either date or both. The selected dates include the full show days.</p>
-        </form>
+      <section id="admin-reports-panel" class="admin-subsection-panel" role="tabpanel" aria-labelledby="admin-reports-tab" ${state.adminActiveTab === "reports" ? "" : "hidden"}>
         <div id="admin-dashboard-results" class="admin-dashboard-results">${statePanel("Loading reports", "Retrieving booking and catalog summaries.", "")}</div>
       </section>
-      <section id="admin-pricing-panel" class="admin-subsection-panel" role="tabpanel" aria-labelledby="admin-pricing-tab" hidden>
+      <section id="admin-pricing-panel" class="admin-subsection-panel" role="tabpanel" aria-labelledby="admin-pricing-tab" ${state.adminActiveTab === "pricing" ? "" : "hidden"}>
         <div id="admin-pricing-results" class="admin-dashboard-results">${statePanel("Loading prices", "Retrieving screening prices.", "")}</div>
       </section>
     </section>`;
     const results = document.getElementById("admin-dashboard-results");
     const pricingResults = document.getElementById("admin-pricing-results");
+    const filterForm = document.getElementById("admin-report-filters");
+    state.adminFilters = updateAdminFilterOptions(filterForm, state.adminShows, state.adminFilters);
     app.querySelectorAll("[data-admin-tab]").forEach((tab) => {
       tab.addEventListener("click", () => {
         const selected = tab.dataset.adminTab;
+        state.adminActiveTab = selected;
         app.querySelectorAll("[data-admin-tab]").forEach((candidate) => {
           candidate.setAttribute("aria-selected", String(candidate === tab));
         });
@@ -2031,95 +2314,90 @@
       tabs[nextIndex].focus();
       tabs[nextIndex].click();
     });
+    filterForm.addEventListener("change", (event) => {
+      const filters = adminFilterValues(filterForm);
+      if (event.target.name === "city") {
+        filters.cinemaId = "";
+        filters.movieId = "";
+      } else if (event.target.name === "cinemaId") {
+        filters.movieId = "";
+      }
+      updateAdminFilterOptions(filterForm, state.adminShows, filters);
+    });
+    filterForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const filters = adminFilterValues(filterForm);
+      const filterError = filterForm.querySelector("[data-admin-filter-error]");
+      if (filters.from && filters.to && filters.from > filters.to) {
+        filterError.textContent = "The start date must be on or before the end date.";
+        filterError.hidden = false;
+        return;
+      }
+      filterError.hidden = true;
+      state.adminFilters = updateAdminFilterOptions(filterForm, state.adminShows, filters);
+      renderAdminDashboard(viewId);
+    });
+    filterForm.querySelector("[data-admin-clear]").addEventListener("click", () => {
+      state.adminFilters = { from: "", to: "", city: "", cinemaId: "", movieId: "" };
+      renderAdminDashboard(viewId);
+    });
     try {
       const [data, shows] = await Promise.all([
-        api.getAdminDashboard(from, to),
+        api.getAdminDashboard(state.adminFilters.from, state.adminFilters.to),
         api.getAdminShows()
       ]);
       if (viewId !== state.viewSequence || reportRequest !== state.adminReportRequest) return;
-      const bookings = Array.isArray(data.bookings) ? data.bookings : [];
+      state.adminShows = Array.isArray(shows) ? shows : [];
+      state.adminFilters = updateAdminFilterOptions(filterForm, state.adminShows, state.adminFilters);
+      const filters = state.adminFilters;
+      const allBookings = Array.isArray(data.bookings) ? data.bookings : [];
+      const bookings = allBookings.filter((booking) => adminBookingMatchesFilters(booking, filters));
+      const matchedShows = state.adminShows.filter((show) => adminShowMatchesFilters(show, filters));
+      const scheduledShows = matchedShows.filter((show) => show.status === "SCHEDULED");
+      const confirmedBookings = bookings.filter((booking) => booking.status === "CONFIRMED");
+      const totalSeatsBooked = confirmedBookings.reduce((total, booking) => total + (booking.seatLabels || []).length, 0);
+      const totalCapacity = scheduledShows.reduce((total, show) => total + (Number(show.totalSeatCapacity) || 0), 0);
+      const occupancy = totalCapacity ? Math.round(totalSeatsBooked / totalCapacity * 100) : 0;
+      const totalRevenue = confirmedBookings.reduce((total, booking) => total + (Number(booking.totalPrice) || 0), 0);
       const money = new Intl.NumberFormat(undefined, { style: "currency", currency: "INR" });
-      const bookingRows = bookings.length ? bookings.map((booking) => {
-        const searchText = [
-          booking.id, booking.bookingReference, booking.movieTitle, booking.city,
-          booking.cinemaName, booking.screenName, booking.showStartTime,
-          ...(booking.seatLabels || []), booking.paymentMethod, booking.paymentStatus,
-          booking.status, booking.aftercareType, booking.aftercareStatus
-        ].join(" ").toLowerCase();
-        return `<tr data-admin-row data-status="${escapeHtml(booking.status)}" data-search="${escapeHtml(searchText)}">
-        <td>#${escapeHtml(booking.id)}</td>
-        <td><strong>${escapeHtml(booking.movieTitle)}</strong><small>${escapeHtml(booking.bookingReference)}</small></td>
-        <td>${escapeHtml(booking.city)}</td>
-        <td>${escapeHtml(formatShowDate(booking.showStartTime))}<small>${escapeHtml(formatTime(booking.showStartTime))} · ${escapeHtml(booking.cinemaName)} · ${escapeHtml(booking.screenName)}</small></td>
-        <td>${escapeHtml((booking.seatLabels || []).join(", "))}<small>${(booking.seatLabels || []).length} seats</small></td>
-        <td>${escapeHtml(money.format(Number(booking.totalPrice)))}</td>
-        <td>${escapeHtml(booking.paymentMethod || "Unknown")}<small>${escapeHtml(booking.paymentStatus || "Unknown")}</small></td>
-        <td>${escapeHtml(booking.status)}<small>${booking.aftercareType ? `${escapeHtml(booking.aftercareType)} · ${escapeHtml(booking.aftercareStatus || "PENDING")} (simulated)` : "No refund/exchange request"}</small></td>
-      </tr>`;
-      }).join("") : `<tr><td class="admin-empty-row" colspan="8">No bookings match the selected show dates.</td></tr>`;
+      const sortAria = (key) => state.adminSort.key === key
+        ? state.adminSort.direction === "asc" ? "ascending" : "descending"
+        : "none";
       results.innerHTML = `<div class="admin-summary-grid">
-        <article class="admin-summary-card"><span>Movies</span><strong>${escapeHtml(data.totalMovies)}</strong><small>Local catalog</small></article>
-        <article class="admin-summary-card"><span>Cinemas</span><strong>${escapeHtml(data.totalCinemas)}</strong><small>Across the demo</small></article>
-        <article class="admin-summary-card"><span>Scheduled shows</span><strong>${escapeHtml(data.totalShows)}</strong><small>Current schedule</small></article>
+        <article class="admin-summary-card"><span>Movies</span><strong>${new Set(matchedShows.map((show) => String(show.movieId))).size}</strong><small>Matching show schedule</small></article>
+        <article class="admin-summary-card"><span>Cinemas</span><strong>${new Set(matchedShows.map((show) => String(show.cinemaId))).size}</strong><small>Matching show schedule</small></article>
+        <article class="admin-summary-card"><span>Scheduled shows</span><strong>${scheduledShows.length}</strong><small>Matching filters</small></article>
         <article class="admin-summary-card"><span>Customer accounts</span><strong>${escapeHtml(data.totalCustomers)}</strong><small>Including admin accounts</small></article>
-        <article class="admin-summary-card"><span>Bookings in range</span><strong>${escapeHtml(data.totalBookings)}</strong><small>Based on show date</small></article>
-        <article class="admin-summary-card"><span>Seats booked</span><strong>${escapeHtml(data.totalSeatsBooked || 0)}</strong><small>Confirmed bookings</small></article>
-        <article class="admin-summary-card admin-revenue-card"><span>Demo revenue in range</span><strong>${escapeHtml(money.format(Number(data.totalRevenue)))}</strong><small>Confirmed bookings only</small></article>
+        <article class="admin-summary-card"><span>Bookings</span><strong>${bookings.length}</strong><small>Matching filters</small></article>
+        <article class="admin-summary-card"><span>Seats booked</span><strong>${totalSeatsBooked}</strong><small>Confirmed bookings</small></article>
+        <article class="admin-summary-card"><span>Occupancy</span><strong>${occupancy}%</strong><small>${totalSeatsBooked} of ${totalCapacity} available seats</small></article>
+        <article class="admin-summary-card admin-revenue-card"><span>Demo revenue</span><strong>${escapeHtml(money.format(totalRevenue))}</strong><small>Confirmed bookings only</small></article>
       </div>
       <div class="admin-breakdown-grid">
-        ${adminBreakdownMarkup("Bookings by movie · all statuses", data.bookingsByMovie)}
-        ${adminBreakdownMarkup("Tickets booked by movie · confirmed", data.mostBookedMovies)}
-        ${adminBreakdownMarkup("Bookings by city", data.bookingsByCity)}
-        ${adminBreakdownMarkup("Show/date bookings", data.bookingsByShow)}
-        ${adminBreakdownMarkup("Payment methods", data.bookingsByPaymentMethod)}
-        ${adminBreakdownMarkup("Payment statuses", data.bookingsByPaymentStatus)}
-        ${adminBreakdownMarkup("Cancellations", data.cancellations)}
-        ${adminBreakdownMarkup("Refund/exchange requests", data.refundRequests)}
+        ${adminBreakdownMarkup("Bookings by movie · all statuses", adminCounts(bookings, (booking) => booking.movieTitle))}
+        ${adminBreakdownMarkup("Tickets booked by movie · confirmed", adminCounts(confirmedBookings, (booking) => booking.movieTitle, (booking) => (booking.seatLabels || []).length))}
+        ${adminBreakdownMarkup("Bookings by city", adminCounts(bookings, (booking) => booking.city))}
+        ${adminBreakdownMarkup("Show/date bookings", adminCounts(bookings, (booking) => `${booking.showStartTime} · ${booking.movieTitle}`))}
+        ${adminBreakdownMarkup("Payment methods", adminCounts(bookings, (booking) => booking.paymentMethod || "UNKNOWN"))}
+        ${adminBreakdownMarkup("Payment statuses", adminCounts(bookings, (booking) => booking.paymentStatus || "UNKNOWN"))}
+        ${adminBreakdownMarkup("Cancellations", adminCounts(bookings.filter((booking) => booking.status === "CANCELLED"), (booking) => booking.status))}
+        ${adminBreakdownMarkup("Refund/exchange requests", adminCounts(bookings.filter((booking) => booking.aftercareType), (booking) => `${booking.aftercareType} · ${booking.aftercareStatus || "PENDING"}`))}
       </div>
       <section class="admin-booking-report" aria-labelledby="admin-bookings-title">
         <div class="admin-booking-heading"><div><span class="eyebrow">Booking report</span><h2 id="admin-bookings-title">Reservations</h2></div><button class="button button-secondary" type="button" data-export-admin ${bookings.length ? "" : "disabled"}>Export CSV</button></div>
         <div class="admin-table-filters"><label>Search bookings<input id="admin-booking-search" type="search" placeholder="Movie, city, seat or payment"></label><label>Status<select id="admin-booking-status"><option value="">All statuses</option><option value="CONFIRMED">Confirmed</option><option value="CANCELLED">Cancelled</option></select></label></div>
-        <div class="admin-table-scroll"><table class="admin-booking-table"><thead><tr><th>ID</th><th>Movie</th><th>City</th><th>Showtime</th><th>Seats</th><th>Amount</th><th>Payment</th><th>Cancellation / refund</th></tr></thead><tbody>${bookingRows}</tbody></table></div>
+        <div class="admin-table-scroll"><table class="admin-booking-table"><thead><tr>
+          <th>ID</th><th>Movie</th><th>City</th>
+          <th aria-sort="${sortAria("showtime")}"><button class="admin-sort-button" type="button" data-admin-sort="showtime">Showtime</button></th>
+          <th aria-sort="${sortAria("seats")}"><button class="admin-sort-button" type="button" data-admin-sort="seats">Seats</button></th>
+          <th aria-sort="${sortAria("amount")}"><button class="admin-sort-button" type="button" data-admin-sort="amount">Amount</button></th>
+          <th>Payment</th><th>Status</th><th>Cancellation / refund</th>
+        </tr></thead><tbody>${adminBookingRows(bookings, money, state.adminSort)}</tbody></table></div>
         <p class="admin-data-note">Demo data is held in the running in-memory H2 database and resets when the app restarts. No real payments are processed.</p>
       </section>`;
-      pricingResults.innerHTML = adminShowPricingMarkup(Array.isArray(shows) ? shows : []);
-      const form = document.getElementById("admin-report-filters");
-      form.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const startDate = form.elements.from.value;
-        const endDate = form.elements.to.value;
-        const filterError = form.querySelector("[data-admin-filter-error]");
-        if (startDate && endDate && startDate > endDate) {
-          filterError.textContent = "The start date must be on or before the end date.";
-          filterError.hidden = false;
-          return;
-        }
-        filterError.hidden = true;
-        renderAdminDashboard(viewId, startDate, endDate);
-      });
-      form.querySelector("[data-admin-clear]").addEventListener("click", () => {
-        renderAdminDashboard(viewId);
-      });
-      pricingResults.querySelectorAll("[data-admin-price-form]").forEach((priceForm) => {
-        priceForm.addEventListener("submit", async (event) => {
-          event.preventDefault();
-          if (!priceForm.reportValidity()) return;
-          const button = priceForm.querySelector('[type="submit"]');
-          const feedback = priceForm.querySelector("[data-admin-price-feedback]");
-          const ticketPrice = Number(new FormData(priceForm).get("ticketPrice"));
-          button.disabled = true;
-          feedback.textContent = "Saving…";
-          try {
-            const updatedShow = await api.updateAdminShowPrice(priceForm.dataset.adminPriceForm, ticketPrice);
-            priceForm.elements.ticketPrice.value = Number(updatedShow.ticketPrice).toFixed(2);
-            feedback.textContent = "Price updated.";
-          } catch (error) {
-            feedback.textContent = `Price wasn't updated: ${error.message}`;
-          } finally {
-            button.disabled = false;
-          }
-        });
-      });
+      const filteredShows = state.adminShows.filter((show) => adminShowMatchesFilters(show, filters));
+      pricingResults.innerHTML = adminShowPricingMarkup(filteredShows);
+      bindAdminPricingControls(pricingResults, filteredShows);
       const searchInput = document.getElementById("admin-booking-search");
       const statusSelect = document.getElementById("admin-booking-status");
       const filterRows = () => {
@@ -2131,6 +2409,23 @@
       };
       searchInput.addEventListener("input", filterRows);
       statusSelect.addEventListener("change", filterRows);
+      results.querySelectorAll("[data-admin-sort]").forEach((sortButton) => {
+        sortButton.addEventListener("click", () => {
+          const key = sortButton.dataset.adminSort;
+          state.adminSort = {
+            key,
+            direction: state.adminSort.key === key && state.adminSort.direction === "desc" ? "asc" : "desc"
+          };
+          results.querySelector("tbody").innerHTML = adminBookingRows(bookings, money, state.adminSort);
+          results.querySelectorAll("[data-admin-sort]").forEach((button) => {
+            const active = button.dataset.adminSort === state.adminSort.key;
+            button.closest("th").setAttribute("aria-sort", active
+              ? state.adminSort.direction === "asc" ? "ascending" : "descending"
+              : "none");
+          });
+          filterRows();
+        });
+      });
       results.querySelector("[data-export-admin]")?.addEventListener("click", () => {
         const csv = adminReportCsv(bookings);
         const url = URL.createObjectURL(new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8" }));
@@ -2148,6 +2443,7 @@
         error.status === 403 ? "Admin access required" : "Dashboard unavailable",
         error.message,
         "");
+      pricingResults.innerHTML = statePanel("Prices unavailable", error.message, "");
     }
   }
 
